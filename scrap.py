@@ -338,3 +338,67 @@ df_no_match["Date_Matched"] = pd.NaT
 # 7. Final result
 df_final = pd.concat([df_joined_best, df_no_match], ignore_index=True)
 
+
+
+
+
+
+## EXPORT
+
+import pandas as pd
+import re
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Font, PatternFill
+from openpyxl import Workbook
+
+# ------------------------------
+# 2. Styled Excel Export Function
+# ------------------------------
+def export_styled_excel(df, filename="itoa_sap_report.xlsx"):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "iTOA-SAP Match"
+
+    # Write the DataFrame to the Excel sheet
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), 1):
+        for c_idx, value in enumerate(row, 1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+
+    # Header styling
+    header_fill = PatternFill(start_color="D9E1F2", fill_type="solid")
+    bold_font = Font(bold=True)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = bold_font
+
+    # Identify key columns
+    headers = list(df.columns)
+    match_idx = headers.index("Matched")
+    prog_type_idx = headers.index("Program Start/End")
+    sched_start_idx = headers.index("REQ_SCHED_START_DATE")
+    sched_end_idx = headers.index("REQ_SCHED_END_DATE")
+
+    # Row formatting
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        match_cell = row[match_idx]
+        prog_type = row[prog_type_idx].value
+
+        # Highlight unmatched
+        if match_cell.value is False:
+            for cell in row:
+                cell.fill = PatternFill(start_color="FFF2CC", fill_type="solid")
+
+        # Dim irrelevant schedule column
+        if prog_type == "Program Start":
+            row[sched_end_idx].font = Font(color="999999")  # dim END
+        elif prog_type == "Program End":
+            row[sched_start_idx].font = Font(color="999999")  # dim START
+
+    # Autofit columns
+    for col in ws.columns:
+        max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 2
+
+    wb.save(filename)
+    print(f"✅ Exported to {filename}")
+    return filename
