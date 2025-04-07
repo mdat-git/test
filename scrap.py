@@ -144,3 +144,26 @@ print(df_final_filtered[[
     "APP_NUM", "REQ_WO_NUM_CLEAN", "Program Start/End", "Time Analyzed",
     "Work Order #", "Date", "Matched", "App_Match_Found"
 ]])
+
+
+## Update logic
+# Step 1: Create Start and End filtered datasets
+start_rows = df_exploded[df_exploded["REQ_SCHED_START_DATE"].between(analysis_start, analysis_end)].copy()
+start_rows["Program Start/End"] = "Program Start"
+start_rows["Time Analyzed"] = start_rows["REQ_SCHED_START_DATE"]
+
+end_rows = df_exploded[df_exploded["REQ_SCHED_END_DATE"].between(analysis_start, analysis_end)].copy()
+end_rows["Program Start/End"] = "Program End"
+end_rows["Time Analyzed"] = end_rows["REQ_SCHED_END_DATE"]
+
+# Step 2: Only keep these filtered rows for matching
+df_long = pd.concat([start_rows, end_rows], ignore_index=True)
+
+# Step 3: Merge with SAP
+df_joined = df_long.merge(sap_data, how="left", left_on="REQ_WO_NUM_CLEAN", right_on="Work Order #")
+df_joined["Matched"] = (df_joined["Date"] - df_joined["Time Analyzed"]).abs() <= pd.Timedelta(days=2)
+
+# Step 4: Flag App_Match_Found at the APP_NUM level
+match_summary = df_joined.groupby("APP_NUM")["Matched"].any().reset_index().rename(columns={"Matched": "App_Match_Found"})
+df_final = df_joined.merge(match_summary, on="APP_NUM", how="left")
+
