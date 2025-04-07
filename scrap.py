@@ -19,3 +19,9 @@ def preprocess_wo_number(df):
     )
 
     return df_output
+
+df_sap_current["ReceiverWorkOrderID"] = (
+    df_sap_current["ReceiverWorkOrderID"]
+    .str.lstrip("0")
+    .str.replace(r"\.0*", "", regex=True)
+)
