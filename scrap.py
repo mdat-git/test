@@ -167,3 +167,23 @@ df_joined["Matched"] = (df_joined["Date"] - df_joined["Time Analyzed"]).abs() <=
 match_summary = df_joined.groupby("APP_NUM")["Matched"].any().reset_index().rename(columns={"Matched": "App_Match_Found"})
 df_final = df_joined.merge(match_summary, on="APP_NUM", how="left")
 
+def extract_pure_sql(sas_code: str) -> str:
+    lines = sas_code.splitlines()
+    in_sql_block = False
+    clean_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped.lower().startswith("proc sql"):
+            in_sql_block = True
+
+        if in_sql_block:
+            if not stripped.startswith("/*") and not stripped.startswith("%") and "ods " not in stripped.lower():
+                clean_lines.append(line)
+
+        if stripped.lower().startswith("quit;"):
+            break
+
+    return "\n".join(clean_lines)
+
