@@ -299,3 +299,42 @@ final_report = df_final_sorted[[
 print(final_report)
 # You can also export to Excel: final_report.to_excel("itoa_sap_match_report.xlsx", index=False)
 
+
+
+
+# 1. Merge
+df_merged = df_long.merge(sap_data, how="left", left_on="REQ_WO_NUM_CLEAN", right_on="Work Order #")
+
+# 2. Compute time delta
+df_merged["TimeDelta"] = (df_merged["Date"] - df_merged["Time Analyzed"]).abs()
+
+# 3. Filter to within 2-day window
+df_windowed = df_merged[df_merged["TimeDelta"] <= pd.Timedelta(days=2)]
+
+# 4. Keep only closest SAP match per row (based on APP_NUM + Program Start/End + WO)
+deduped_idx = (
+    df_windowed
+    .groupby(["APP_NUM", "Program Start/End", "REQ_WO_NUM_CLEAN"])["TimeDelta"]
+    .idxmin()
+)
+
+df_joined_best = df_windowed.loc[deduped_idx].copy()
+
+# 5. Add match flags
+df_joined_best["Matched"] = True
+df_joined_best["Date_Matched"] = df_joined_best["Date"]
+
+# 6. Fill in unmatched (i.e., rows that had no SAP match at all)
+df_no_match = df_long.merge(
+    df_joined_best[["APP_NUM", "Program Start/End", "REQ_WO_NUM_CLEAN"]],
+    how="left",
+    on=["APP_NUM", "Program Start/End", "REQ_WO_NUM_CLEAN"],
+    indicator=True
+).query("_merge == 'left_only'").drop(columns=["_merge"])
+
+df_no_match["Matched"] = False
+df_no_match["Date_Matched"] = pd.NaT
+
+# 7. Final result
+df_final = pd.concat([df_joined_best, df_no_match], ignore_index=True)
+
