@@ -402,3 +402,96 @@ def export_styled_excel(df, filename="itoa_sap_report.xlsx"):
     wb.save(filename)
     print(f"✅ Exported to {filename}")
     return filename
+
+
+
+
+
+
+
+
+{
+    "name": "Modern Dashboard Fusion",
+    "dataColors": [
+        "#FF2D75",
+        "#FFD6E5",
+        "#61d87c",
+        "#54c6e9",
+        "#f6db5e",
+        "#e95474",
+        "#3183c8",
+        "#9b6be8",
+        "#f28b74",
+        "#dbdcdc"
+    ],
+    "background": "#F8F8F8",
+    "foreground": "#000000",
+    "tableAccent": "#FF2D75",
+    "visualStyles": {
+        "*": {
+            "*": {
+                "color": [
+                    {
+                        "solid": {
+                            "color": "#000000"
+                        }
+                    }
+                ],
+                "background": [
+                    {
+                        "solid": {
+                            "color": "#FFFFFF"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "sentimentColors": [
+        "#61d87c",
+        "#f6db5e",
+        "#e95474"
+    ]
+}{
+    "name": "Modern Dashboard Fusion",
+    "dataColors": [
+        "#FF2D75",
+        "#FFD6E5",
+        "#61d87c",
+        "#54c6e9",
+        "#f6db5e",
+        "#e95474",
+        "#3183c8",
+        "#9b6be8",
+        "#f28b74",
+        "#dbdcdc"
+    ],
+    "background": "#F8F8F8",
+    "foreground": "#000000",
+    "tableAccent": "#FF2D75",
+    "visualStyles": {
+        "*": {
+            "*": {
+                "color": [
+                    {
+                        "solid": {
+                            "color": "#000000"
+                        }
+                    }
+                ],
+                "background": [
+                    {
+                        "solid": {
+                            "color": "#FFFFFF"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "sentimentColors": [
+        "#61d87c",
+        "#f6db5e",
+        "#e95474"
+    ]
+}
