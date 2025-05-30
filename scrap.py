@@ -495,3 +495,281 @@ def export_styled_excel(df, filename="itoa_sap_report.xlsx"):
         "#e95474"
     ]
 }
+def predict_folder(self,
+                       img_filename,
+                       # img_bytes,
+                       model,
+                       output_csv_file,
+                       basePath):
+        print(model._YoloEndpoint)
+        print(model._PoleEndpoint)
+        print(model._CrossarmEndpoint)
+        print(model._TransformerEndpoint)
+        print(model._InsulatorEndpoint)
+        print(model._CotterKeyEndpoint)
+        print(model._FuseEndpoint)
+        print(model._SwitchBladeEndpoint)
+
+        # modelMappingDict = {}
+        # for item in self.flask_hyp['ROC_ML_PREDICTION_LIST']:
+        #     try:
+        #         with open(self.flask_hyp['CLASSIFIER_MAPPING_PATH'] + os.sep + "AERIAL_%s_DEFECT_MAPPING.json" % str(item).upper()) as infile:
+        #             modelMappingDict[item] = json.load(infile)
+        #     except Exception as e:
+        #         print("No mapping file found for asset %s" % str(item))
+        #         pass
+
+        os.environ['TZ'] = 'America/Los_Angeles'
+        file = ntpath.basename(img_filename)
+        # outFrame = pd.DataFrame()
+        durationList = []
+        counter = 0
+        try:
+            start = time.time()
+            # Added in forced rotations
+            # imagesRotated = [cv2.cvtColor(cv2.imread(str(file)), cv2.COLOR_BGR2RGB)]
+            # for idx, rotation in enumerate(imagesRotated):
+            rotation = cv2.cvtColor(cv2.imread(str(file)), cv2.COLOR_BGR2RGB)
+            try:
+                object_process_start = time.time()
+                currResult, _ = model.predict(imagePath=rotation,
+                                              # img_bytes=img_bytes,
+                                              genPlot=0,
+                                              genPlotSavePath=basePath + os.sep + "PredImages" + os.sep + "%s_%s_pred.png" % (
+                                                  str(
+                                                      file).split(os.sep)[-1].split(".")[
+                                                      0], str(0)),
+                                              keywordFilter=[],
+                                              confThresh=self._confThresh,  # .4 to .1
+                                              probThresh=self._probThresh,  # 0.5 to 0.1
+                                              vertex_serving=True
+                                              )
+                object_process_end = time.time()
+                object_process_time = object_process_end - object_process_start
+                print("Object Detection Prediction Time for file %s : %d seconds" % (file, int(object_process_time)))
+                
+                #Removing this - we want to store objects in DB for other use cases regardless of defect
+                # ROC_ML_PREDICTION_LIST: ["POLE", "CROSSARM", "DEFECTIVE_POLE", "DEFECTIVE_CROSSARM"]
+                # print(currResult)
+                # currResult = currResult[currResult['label'].isin(model._ROC_ML_PREDICTION_LIST
+                #                                                  )] if not currResult.empty else currResult
+                if not currResult.empty:
+                    currResult.reset_index(drop=True, inplace=True)
+                    currResult['filename'] = str(img_filename)
+                    currResult['rotation'] = 0
+                    # if idx == 1:
+                    #     currResult['rotation'] = 90
+                    # if idx == 2:
+                    #     currResult['rotation'] = -90
+                    ROC_ML_PREDICTION_DICT = {
+                        "POLE": model._PoleEndpoint,
+                        "CROSSARM": model._CrossarmEndpoint,
+                        "TRANSFORMER": model._TransformerEndpoint,
+                        "INSULATOR": model._InsulatorEndpoint,
+                        "COTTER_KEY": model._CotterKeyEndpoint,
+                        "FUSE": model._FuseEndpoint,
+                        "SWITCH_BLADE": model._SwitchBladeEndpoint,
+                        "CAPACITOR": model._CapacitorEndpoint,
+                        "LIGHTNING_ARRESTOR" : model._LightningArrestorEndpoint
+                    }
+                    print(list(ROC_ML_PREDICTION_DICT.keys()))
+                    # Defect secondary classifier(s)
+                    currResult['defect_probability'] = np.nan
+                    currResult['defect_type'] = ""
+                    currResult['priority_probability'] = np.nan
+                    currResult['priority'] = ""
+                    currResult['object_process_time'] = int(object_process_time)
+                    currResult['defect_process_time'] = np.nan
+
+                    #Force bird_nest defect probability to equal object probability for consistent output
+                    if "BIRD_NEST" in currResult['label'].values.tolist():
+                        currResult.loc[currResult['label']=='BIRD_NEST', 'defect_probability'] = currResult.loc[currResult['label']=='BIRD_NEST', 'object_probability']
+
+                    #update loop logic to apply models in batches rather than 1 at a time(reduce time increase as we add new objects)
+                    for asset in list(ROC_ML_PREDICTION_DICT.keys()):
+                        print(asset)
+                        asset_df = currResult[currResult['label'].str.contains(asset)]
+                        if not asset_df.empty:
+                            idxs_asset = asset_df.index
+                            image = [preprocess_input(cv2.resize(rotation[ymin:ymax, xmin:xmax], (208, 208))) for
+                                         xmin, xmax, ymin, ymax in
+                                         asset_df[['xmin', 'xmax', 'ymin', 'ymax']].values.tolist()]
+
+                            # image = np.expand_dims(preprocess_input(currCrop), 0)
+                            image = np.array(image)
+                            # print(image.shape)
+                            # print(len(image.tolist()))
+                            data = json.dumps({
+                                "instances": image.tolist()
+                            })
+                            headers = {"content-type": "application/json"}
+                            defect_process_start = time.time()
+                            result = requests.post(
+                                url=ROC_ML_PREDICTION_DICT[asset],
+                                data=data, headers=headers)
+                            defect_process_end = time.time()
+                            defect_process_time = defect_process_end - defect_process_start
+                            print(f"{asset} defect_process_time: {defect_process_time}")
+                            pred = result.json()['predictions']
+
+                            # objectDefect = pred[0]
+                            # objectPriority = pred[1]
+
+                            objectDefect = [x['defect_output'] for x in pred]
+                            objectPriority = [x['severity_output'] for x in pred]
+
+                            # print(objectDefect)
+                            # if len(objectDefect) > 1:
+
+                            priority = np.array(objectPriority)
+                            defect = np.array(objectDefect)
+                            keys = list(self.modelMappingDict[asset].keys())
+                            vals = list(self.modelMappingDict[asset].values())
+
+                            curr_keys = np.tile(keys, defect.shape[0]).reshape(defect.shape[0], -1)
+                            # print(curr_keys)
+                            # curr_defects = np.where(defect >= -1)
+                            curr_defect_order = np.argsort(-defect)
+                            curr_keys = np.take_along_axis(curr_keys, curr_defect_order, axis=-1)
+                            # print(curr_keys)
+                            defect = np.take_along_axis(defect, curr_defect_order, axis=-1)
+                            defect = np.where(curr_keys == "NO_DEFECT", -1, defect)
+
+                            #If all probabilities less than base value, take max for database
+                            outputs_max_idx = np.argmax(defect, axis=-1)
+                            # outputs_max_defect_type = curr_keys[outputs_max_idx]
+
+                            outputs = np.where(defect >= .8, curr_keys, "NA")#.tolist()
+                            # print(outputs)
+                            outputs = [["@".join(filter(lambda x: x != "NA", y))] for y in outputs]
+
+                            #if output is blank, use max value defect
+                            outputs = [x if x != [''] else curr_keys[idx][outputs_max_idx[idx]] for idx, x in enumerate(outputs)]
+                            #if a list exists, grab only the element
+                            outputs = [x[0] if isinstance(x, list) else x for x in outputs]
+                            #testing
+
+                            #Adding priority prediction
+                            priority_max_prob = np.argmax(priority, axis=-1)
+                            priority_predictions_prob = priority[np.arange(priority.shape[0]), priority_max_prob]
+                            priority_predictions = [self.priority_dict[x] for x in priority_max_prob]
+
+                            currResult.loc[idxs_asset, 'defect_type'] = outputs
+                            currResult.loc[idxs_asset, 'defect_probability'] = np.round((100 * np.max(defect, axis=-1))).astype(int).tolist()
+                            currResult.loc[idxs_asset, 'priority_probability'] = np.round((100 * priority_predictions_prob)).astype(int)
+                            currResult.loc[idxs_asset, 'priority'] = priority_predictions
+                            # else:
+                            #     currResult.loc[idxs_asset, 'defect_type'] = ""
+                            #     defect = [x[0] for x in objectDefect]
+                            #     # print(objectDefect)
+                            #     currResult.loc[idxs_asset, 'defect_probability'] = np.round(100 * np.array(defect)).astype(int).tolist()
+                            currResult.loc[idxs_asset, 'defect_process_time'] = defect_process_time
+                        asset_df = pd.DataFrame()
+                    # currResult = currResult[~currResult['defect_type'].str.contains("NO_DEFECT")]
+                    context_logic_start = time.time()
+                    currResult = self.context_logic.runLogic(df=currResult)
+                    context_logic_end = time.time()
+                    context_logic_time = context_logic_end - context_logic_start
+                    print("context logic time: {} seconds".format(context_logic_time))
+
+                    # for idx2, row2 in currResult.iterrows():
+                    #     object = row2['label']
+                    #     # for object in list(ROC_ML_PREDICTION_DICT.keys()):
+                    #     # if object in row2['label']:
+                    #     if object in list(ROC_ML_PREDICTION_DICT.keys()):
+                    #         left = row2['xmin']
+                    #         top = row2['ymin']
+                    #         right = row2['xmax']
+                    #         bottom = row2['ymax']
+                    #
+                    #         currCrop = rotation
+                    #         currCrop = currCrop[top:bottom, left:right]
+                    #         currCrop = cv2.resize(currCrop, (208, 208))
+                    #
+                    #         image = np.expand_dims(preprocess_input(currCrop), 0)
+                    #         data = json.dumps({
+                    #             "instances": image.tolist()
+                    #         })
+                    #         headers = {"content-type": "application/json"}
+                    #
+                    #         # creds, project = google.auth.default()
+                    #         #
+                    #         # # creds.valid is False, and creds.token is None
+                    #         # # Need to refresh credentials to populate those
+                    #         #
+                    #         # auth_req = google.auth.transport.requests.Request()
+                    #         # creds.refresh(auth_req)
+                    #         # auth_token = creds.token
+                    #         # headers = {"content-type": "application/json",
+                    #         #            "Authorization": "Bearer %s" % auth_token}
+                    #
+                    #         result = requests.post(
+                    #             url=ROC_ML_PREDICTION_DICT[object],
+                    #             data=data, headers=headers)
+                    #         objectDefect = result.json()['predictions']
+                    #         objectDefect = objectDefect[0][0]
+                    #         currResult.loc[idx2, 'defect_probability'] = round(100 * objectDefect)
+
+                    currResult['filename'] = str(
+                        img_filename)  # currResult['filename'].str)         #.replace("/", "\\")
+                    currResult['prediction_datetime'] = str(MainUtil.get_pst_time())
+                    currResult['xmin'] = currResult['xmin'] / currResult['img_width']
+                    currResult['xmax'] = currResult['xmax'] / currResult['img_width']
+                    currResult['ymin'] = currResult['ymin'] / currResult['img_height']
+                    currResult['ymax'] = currResult['ymax'] / currResult['img_height']
+                    currResult['label'] = currResult['label'].str.replace("DEFECTIVE_", "")
+                else:
+                    cols = ['filename', 'label', 'xmin', 'xmax', 'ymin', 'ymax', 'img_width', 'img_height',
+                            'bboxcolor', 'label_timestamp', 'ignore', 'labeling_complete',
+                            'rotation', 'object_probability', 'label_probability', 'defect_probability', 'defect_type',
+                            'priority_probability', 'priority',
+                            'prediction_datetime', 'object_process_time', 'defect_process_time']
+                    currOut = [str(img_filename).replace("/", "\\"), "NO_PREDICTIONS", np.nan, np.nan, np.nan,
+                               np.nan,
+                               np.nan, np.nan, "NA", '3000-01-01_12:00:00', 1, 1, 0, np.nan, np.nan, np.nan,"", np.nan, "",
+                               str(MainUtil.get_pst_time()), object_process_time, 0]
+                    currResult = pd.DataFrame([dict(zip(cols, currOut))])
+                    currResult = currResult[
+                        ['filename', 'label', 'xmin', 'xmax', 'ymin', 'ymax', 'img_width', 'img_height',
+                         'bboxcolor', 'label_timestamp', 'ignore', 'labeling_complete',
+                         'rotation', 'object_probability', 'label_probability', 'defect_probability', 'defect_type',
+                         'priority_probability', 'priority',
+                         'prediction_datetime', 'object_process_time', 'defect_process_time']]
+            except Exception as e:
+                print(f'{e} for {img_filename}', flush=True)
+                pass
+
+            # temporary save after each iteration
+            cols = ['filename', 'label', 'xmin', 'xmax', 'ymin', 'ymax', 'img_width', 'img_height',
+                    'bboxcolor', 'label_timestamp', 'ignore', 'labeling_complete',
+                    'rotation', 'object_probability', 'label_probability', 'defect_probability', 'defect_type',
+                    'priority_probability', 'priority',
+                    'prediction_datetime', 'object_process_time', 'defect_process_time']
+            # output_csv_file = basePath + os.sep + str(pathOfInterest).split(os.sep)[-1].replace(":", "") + "_predictions.csv"
+            # outFrame[cols].to_csv(output_csv_file, index=False)
+            if not os.path.exists(output_csv_file):
+                currResult[cols].to_csv(output_csv_file, header=True, index=False)
+            else:
+                currResult[cols].to_csv(output_csv_file, mode='a', header=False, index=False)
+
+            currResult = None
+            end = time.time()
+            duration = (end - start) / 60
+            durationList.append(duration)
+            counter = counter + 1
+            # status = float(counter) / float(fileNum)
+            # timeRemaining = round((fileNum - counter) * np.mean(durationList), 2)
+            # if counter % 10 == 0:
+            #    print(str(round(status * 100, 2)) + "% Complete\nEstimated Time Remaining: {} Minutes".format(
+            #        timeRemaining))
+        except Exception as e:
+            print(f'{e} for {img_filename}', flush=True)
+            raise Exception(e)
+
+        # print("Total run time: {}".format(round(np.sum(duration), 2)))
+        # if not os.path.exists(basePath + "/PredImages"):
+        #     os.mkdir(basePath + "/PredImages")
+        #
+        # outFrame.to_csv(basePath + "/PredImages/" + str(file).split("\\")[-1].replace(":", "") + "_predictions.csv", index=False)
+
+        return (output_csv_file, False)
