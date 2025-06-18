@@ -1,3 +1,61 @@
+# Group by Outage ID, DataStatus, and DataAsOf to count steps
+step_counts = (
+    df.groupby(["DISTRB_OUTG_ID", "DataAsOf", "DataStatus"])["Step_Num"]
+    .nunique()
+    .reset_index(name="StepCount")
+)
+
+# Pivot to have 'pending' and 'validated' side by side
+step_pivot = (
+    step_counts.pivot_table(
+        index=["DISTRB_OUTG_ID", "DataAsOf"],
+        columns="DataStatus",
+        values="StepCount"
+    )
+    .reset_index()
+)
+
+# Find where step count changed
+step_pivot["StepCountDiff"] = (step_pivot["pending"] != step_pivot["validated"])
+
+# Get just those outages where step count changed
+step_changed = step_pivot[step_pivot["StepCountDiff"] == True]
+
+# First, get distinct status per outage per snapshot
+status_history = (
+    df[["DISTRB_OUTG_ID", "DataAsOf", "DataStatus"]]
+    .drop_duplicates()
+    .sort_values(["DISTRB_OUTG_ID", "DataAsOf"])
+)
+
+# Group per outage and collect ordered status list
+status_flows = (
+    status_history
+    .groupby("DISTRB_OUTG_ID")["DataStatus"]
+    .apply(list)
+    .reset_index(name="StatusSequence")
+)
+
+# Detect outages where status switches back and forth
+def has_inflection(statuses):
+    return any(
+        statuses[i] != statuses[i+1]
+        for i in range(len(statuses)-1)
+    )
+
+def flip_count(statuses):
+    return sum(
+        statuses[i] != statuses[i+1]
+        for i in range(len(statuses)-1)
+    )
+
+status_flows["HasStatusFlip"] = status_flows["StatusSequence"].apply(has_inflection)
+status_flows["FlipCount"] = status_flows["StatusSequence"].apply(flip_count)
+
+# Filter if you want only outages with >1 flip
+flipped_outages = status_flows[status_flows["FlipCount"] > 1]
+
+
 import os
 import pandas as pd
 import re
