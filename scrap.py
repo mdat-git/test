@@ -1,3 +1,45 @@
+import os
+import pandas as pd
+import re
+
+# 🔧 Set your directory (modify this as needed)
+folder_path = r"C:\path\to\your\archive"  # Example: r"C:\Users\you\Documents\outage_validation\data\archive"
+
+# 🧺 List all .csv files
+csv_files = [f for f in os.listdir(folder_path) if f.endswith('.csv')]
+
+# 📦 Store individual dataframes
+all_data = []
+
+for file in csv_files:
+    full_path = os.path.join(folder_path, file)
+
+    # 🗓️ Extract date from filename using regex
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", file)
+    if match:
+        date_str = match.group(1)
+    else:
+        print(f"Date not found in filename: {file}")
+        continue
+
+    try:
+        df = pd.read_csv(full_path)
+
+        # 🧱 Add DataAsOf column
+        df["DataAsOf"] = pd.to_datetime(date_str)
+
+        # 🧩 Store
+        all_data.append(df)
+    except Exception as e:
+        print(f"Failed to load {file}: {e}")
+
+# 📊 Combine all into one dataframe
+combined_df = pd.concat(all_data, ignore_index=True)
+
+# 📝 Optional: save to file
+combined_df.to_csv("combined_outage_data.csv", index=False)
+
+
 import pandas as pd
 import re
 
