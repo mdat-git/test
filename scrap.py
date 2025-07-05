@@ -1,3 +1,36 @@
+
+def append_csvs_by_suffix(directory_path: str, suffixes: List[str]) -> pd.DataFrame:
+    """
+    Appends all CSV files in the given directory (and subdirectories)
+    that end with any of the specified suffixes.
+    
+    Args:
+        directory_path (str): The path to search.
+        suffixes (List[str]): List of filename endings (e.g., ['pending.csv', 'validated.csv']).
+    
+    Returns:
+        pd.DataFrame: Combined DataFrame of matched CSVs.
+    """
+    dataframes = []
+
+    for root, _, files in os.walk(directory_path):
+        for file in files:
+            if any(file.endswith(suffix) for suffix in suffixes):
+                file_path = os.path.join(root, file)
+                print(f"Reading: {file_path}")
+                df = pd.read_csv(file_path)
+                df['__source_file__'] = file  # Optional: track source file
+                dataframes.append(df)
+
+    if dataframes:
+        combined_df = pd.concat(dataframes, ignore_index=True)
+        return combined_df
+    else:
+        print("No matching CSV files found.")
+        return pd.DataFrame()
+
+
+
 # Group by Outage ID, DataStatus, and DataAsOf to count steps
 step_counts = (
     df.groupby(["DISTRB_OUTG_ID", "DataAsOf", "DataStatus"])["Step_Num"]
