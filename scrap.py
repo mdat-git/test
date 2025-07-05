@@ -1,32 +1,34 @@
 
-def append_csvs_by_suffix(directory_path: str, suffixes: List[str]) -> pd.DataFrame:
+def append_csvs_by_mode(directory_path: str, mode: str) -> pd.DataFrame:
     """
-    Appends all CSV files in the given directory (and subdirectories)
-    that end with any of the specified suffixes.
-    
+    Appends all CSV files ending in the specified mode (e.g., 'pending' or 'validated').
+
     Args:
-        directory_path (str): The path to search.
-        suffixes (List[str]): List of filename endings (e.g., ['pending.csv', 'validated.csv']).
-    
+        directory_path (str): Path to search for CSVs.
+        mode (str): Either 'pending' or 'validated'.
+
     Returns:
         pd.DataFrame: Combined DataFrame of matched CSVs.
     """
+    if mode not in ["pending", "validated"]:
+        raise ValueError("Mode must be 'pending' or 'validated'")
+
+    target_suffix = f"{mode}.csv"
     dataframes = []
 
     for root, _, files in os.walk(directory_path):
         for file in files:
-            if any(file.endswith(suffix) for suffix in suffixes):
+            if file.endswith(target_suffix):
                 file_path = os.path.join(root, file)
                 print(f"Reading: {file_path}")
                 df = pd.read_csv(file_path)
-                df['__source_file__'] = file  # Optional: track source file
+                df['__source_file__'] = file  # Optional: keep track of source
                 dataframes.append(df)
 
     if dataframes:
-        combined_df = pd.concat(dataframes, ignore_index=True)
-        return combined_df
+        return pd.concat(dataframes, ignore_index=True)
     else:
-        print("No matching CSV files found.")
+        print(f"No {mode}.csv files found.")
         return pd.DataFrame()
 
 
