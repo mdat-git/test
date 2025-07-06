@@ -1,4 +1,18 @@
 
+ # If LOAD_DATE column is missing, extract from filename
+                if 'LOAD_DATE' not in df.columns:
+                    date_match = re.match(r"(\d{4}-\d{2}-\d{2})__.*", file)
+                    if date_match:
+                        extracted_date = date_match.group(1)
+                        df['LOAD_DATE'] = extracted_date
+                    else:
+                        print(f"⚠️ Could not extract LOAD_DATE from filename: {file}")
+                        df['LOAD_DATE'] = pd.NaT  # or leave as None/NaN
+
+                dataframes.append(df)
+
+
+
 def append_csvs_by_mode(directory_path: str, mode: str) -> pd.DataFrame:
     """
     Appends all CSV files ending in the specified mode (e.g., 'pending' or 'validated').
