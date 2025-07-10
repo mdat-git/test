@@ -1,0 +1,23 @@
+def detect_status_flips_across_steps(df_steps: pd.DataFrame) -> pd.DataFrame:
+    df = df_steps[['DISTRB_OUTG_ID', 'VAL_STAT', 'LAST_UPDT_TS']].copy()
+    df['LAST_UPDT_TS'] = pd.to_datetime(df['LAST_UPDT_TS'])
+
+    # Step 1: Sort across all steps within each outage
+    df = df.sort_values(['DISTRB_OUTG_ID', 'LAST_UPDT_TS'])
+
+    # Step 2: Drop consecutive duplicate statuses per outage (status must flip)
+    df['VAL_STAT_SHIFT'] = df.groupby('DISTRB_OUTG_ID')['VAL_STAT'].shift()
+    df = df[df['VAL_STAT'] != df['VAL_STAT_SHIFT']]
+
+    # Step 3: Aggregate transitions and count flips
+    transitions = (
+        df.groupby('DISTRB_OUTG_ID')
+        .agg({
+            'VAL_STAT': lambda x: '→'.join(x),
+            'VAL_STAT_SHIFT': 'count'  # number of transitions (i.e., flips)
+        })
+        .rename(columns={'VAL_STAT': 'Status_Transitions', 'VAL_STAT_SHIFT': 'Flip_Count'})
+        .reset_index()
+    )
+
+    return transitions
