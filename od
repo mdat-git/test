@@ -1,3 +1,45 @@
+def detect_qual_changes(df_steps: pd.DataFrame, df_summary: pd.DataFrame, qual_cols: list) -> pd.DataFrame:
+    # Ensure timestamp is datetime
+    df_steps['LAST_UPDT_TS'] = pd.to_datetime(df_steps['LAST_UPDT_TS'])
+
+    # Get earliest pending and latest validated records for each outage
+    df_pending = (
+        df_steps[df_steps['VAL_STAT'] == 'P']
+        .sort_values('LAST_UPDT_TS')
+        .groupby('DISTRB_OUTG_ID')
+        .first()[qual_cols]
+    )
+
+    df_validated = (
+        df_steps[df_steps['VAL_STAT'] == 'V']
+        .sort_values('LAST_UPDT_TS')
+        .groupby('DISTRB_OUTG_ID')
+        .last()[qual_cols]
+    )
+
+    # Align both DataFrames
+    df_compare = df_pending.join(df_validated, lsuffix='_pending', rsuffix='_validated', how='inner')
+
+    # Compare fields
+    def compare_row(row):
+        changed_fields = []
+        for col in qual_cols:
+            if row[f"{col}_pending"] != row[f"{col}_validated"]:
+                changed_fields.append(col)
+        return changed_fields
+
+    df_compare['Fields_Changed'] = df_compare.apply(compare_row, axis=1)
+    df_compare['Any_Qual_Change'] = df_compare['Fields_Changed'].apply(lambda x: len(x) > 0)
+    df_compare['Fields_Changed'] = df_compare['Fields_Changed'].apply(lambda x: ';'.join(x) if x else '')
+
+    # Select only what's needed to merge back to OutageSummary
+    df_qual_flags = df_compare[['Fields_Changed', 'Any_Qual_Change']].reset_index()
+
+    # Merge with outage summary
+    df_summary = df_summary.merge(df_qual_flags, on='DISTRB_OUTG_ID', how='left')
+
+    return df_summary
+
 def detect_status_flips_across_steps(df_steps: pd.DataFrame) -> pd.DataFrame:
     df = df_steps[['DISTRB_OUTG_ID', 'VAL_STAT', 'LAST_UPDT_TS']].copy()
     df['LAST_UPDT_TS'] = pd.to_datetime(df['LAST_UPDT_TS'])
