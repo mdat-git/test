@@ -1,3 +1,56 @@
+def create_metadata_change_log(
+    df_steps: pd.DataFrame,
+    qual_cols: list,
+    last_updated_col: str  # 🧠 this is just the name of the column to use for sorting
+) -> pd.DataFrame:
+    """
+    Create a long-format audit table of qualitative metadata changes,
+    comparing earliest 'pending' and latest 'validated' records per outage.
+
+    Parameters:
+    - df_steps: DataFrame with step-level outage data
+    - qual_cols: list of categorical fields to compare
+    - last_updated_col: name of the pre-parsed datetime column to sort by
+
+    Returns:
+    - DataFrame with columns: DISTRB_OUTG_ID, Field_Changed, Value_Pending, Value_Validated
+    """
+
+    # Step 1: Sort and select earliest pending per outage
+    df_pending = (
+        df_steps[df_steps['VAL_STAT'] == 'P']
+        .sort_values(last_updated_col)
+        .groupby('DISTRB_OUTG_ID')
+        .first()[qual_cols]
+    )
+
+    # Step 2: Sort and select latest validated per outage
+    df_validated = (
+        df_steps[df_steps['VAL_STAT'] == 'V']
+        .sort_values(last_updated_col)
+        .groupby('DISTRB_OUTG_ID')
+        .last()[qual_cols]
+    )
+
+    # Step 3: Compare and build long-format change log
+    df_compare = df_pending.join(df_validated, lsuffix='_pending', rsuffix='_validated', how='inner')
+
+    records = []
+    for idx, row in df_compare.iterrows():
+        for col in qual_cols:
+            val_p = row[f'{col}_pending']
+            val_v = row[f'{col}_validated']
+            if val_p != val_v:
+                records.append({
+                    'DISTRB_OUTG_ID': idx,
+                    'Field_Changed': col,
+                    'Value_Pending': val_p,
+                    'Value_Validated': val_v
+                })
+
+    return pd.DataFrame(records)
+
+
 def detect_qual_changes(df_steps: pd.DataFrame, df_summary: pd.DataFrame, qual_cols: list) -> pd.DataFrame:
     # Ensure timestamp is datetime
     df_steps['LAST_UPDT_TS'] = pd.to_datetime(df_steps['LAST_UPDT_TS'])
