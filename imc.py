@@ -1,3 +1,29 @@
+# Thresholds (tune as needed)
+CMI_threshold = 95     # % of outages with d_CMI < 26.5
+Flip_threshold = 10    # % of outages with cause code flip
+
+# Classify each district into quadrants
+risk_summary["Category"] = risk_summary.apply(
+    lambda r: (
+        "Safe Skip" if r["Pct_CMI_Below_26.5"] >= CMI_threshold and r["Flip_Rate_pct"] <= Flip_threshold else
+        "Cause Code Risk" if r["Pct_CMI_Below_26.5"] >= CMI_threshold and r["Flip_Rate_pct"] > Flip_threshold else
+        "CMI Risk" if r["Pct_CMI_Below_26.5"] < CMI_threshold and r["Flip_Rate_pct"] <= Flip_threshold else
+        "High Risk"
+    ),
+    axis=1
+)
+
+# Summary table
+quadrant_table = (
+    risk_summary.groupby("Category")["DISTRICTNAME"]
+    .apply(list)
+    .reset_index()
+)
+
+display(quadrant_table)
+
+
+
 import matplotlib.pyplot as plt
 
 # 1) Get per-district CMI stats
