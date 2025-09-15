@@ -1,3 +1,83 @@
+ # Cause Code Audit Log Processor
+# ----------------------------------------------------
+# Inputs:
+#   - df_cc : outage-level dataframe with ['DISTRB_OUTG_ID','DISTRICTNAME']
+#   - metadata_change_log : with ['DISTRB_OUTG_ID','Field_Changed','Value_Pending','Value_Validated']
+# 
+# Output:
+#   - Transition tables per RMI level (3, 6, 19)
+#   - District-level flip summary
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1) Filter to cause code fields
+cause_fields = ["CauseCode_RMI3", "CauseCode_RMI6", "CauseCode_RMI19"]
+cause_log = metadata_change_log[metadata_change_log["Field_Changed"].isin(cause_fields)].copy()
+
+# 2) Keep only real flips
+cause_log = cause_log[
+    cause_log["Value_Pending"].astype(str) != cause_log["Value_Validated"].astype(str)
+].copy()
+
+# 3) Transition counts per level
+transition_tables = {}
+for level in cause_fields:
+    tab = (
+        cause_log[cause_log["Field_Changed"] == level]
+        .groupby(["Value_Pending","Value_Validated"])
+        .size()
+        .reset_index(name="Count")
+        .sort_values("Count", ascending=False)
+    )
+    # % of total for this level
+    tab["Pct_of_Level"] = (tab["Count"] / tab["Count"].sum() * 100).round(2)
+    transition_tables[level] = tab
+    print(f"\nTop transitions for {level}:")
+    display(tab.head(10))
+
+# 4) Flip counts by district
+#    (merge with outage-level df to attach DISTRICTNAME)
+cause_flips = cause_log[["DISTRB_OUTG_ID","Field_Changed"]].drop_duplicates()
+district_summary = (
+    cause_flips.merge(df_cc[["DISTRB_OUTG_ID","DISTRICTNAME"]], on="DISTRB_OUTG_ID", how="left")
+    .groupby("DISTRICTNAME")
+    .size()
+    .reset_index(name="Cause_Flip_Count")
+)
+
+# Add total outages per district
+district_summary = district_summary.merge(
+    df_cc.groupby("DISTRICTNAME").size().reset_index(name="Total_Outages"),
+    on="DISTRICTNAME",
+    how="left"
+)
+
+# Flip rate %
+district_summary["Flip_Rate_pct"] = (
+    district_summary["Cause_Flip_Count"] / district_summary["Total_Outages"] * 100
+).round(2)
+
+# Sort safest → riskiest
+district_summary = district_summary.sort_values("Flip_Rate_pct", ascending=True).reset_index(drop=True)
+
+print("\nDistrict-level cause code flip summary:")
+display(district_summary)
+
+# 5) Quick bar chart: flip rate by district
+plt.figure(figsize=(8,5))
+plt.barh(district_summary["DISTRICTNAME"], district_summary["Flip_Rate_pct"])
+plt.xlabel("% outages with cause code flip")
+plt.ylabel("District")
+plt.title("Cause Code Flip Rate by District", fontweight="bold")
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
 # 1) Filter to actual changes only
 mcl_changes = metadata_change_log[
     metadata_change_log["Value_Pending"].astype(str)
