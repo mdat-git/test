@@ -1,3 +1,23 @@
+# All-field transition frequency
+all_transitions = (
+    metadata_change_log[
+        metadata_change_log["Value_Pending"].astype(str) != metadata_change_log["Value_Validated"].astype(str)
+    ]
+    .groupby(["Field_Changed","Value_Pending","Value_Validated"])
+    .size()
+    .reset_index(name="Count")
+    .sort_values("Count", ascending=False)
+)
+
+# % of changes within each field
+all_transitions["Pct_of_Field"] = (
+    all_transitions["Count"] / all_transitions.groupby("Field_Changed")["Count"].transform("sum") * 100
+).round(2)
+
+display(all_transitions.head(20))  # top 20 across all fields
+
+
+
 # District-level CMI_delta analysis
 # ---------------------------------
 # Assumes df_cc has:
