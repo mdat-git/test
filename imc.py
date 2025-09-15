@@ -1,3 +1,64 @@
+
+# Transition Frequency Analysis from metadata_change_log
+# ------------------------------------------------------
+# Expected columns: DISTRB_OUTG_ID, Field_Changed, Value_Pending, Value_Validated
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1) Filter to actual changes only
+mcl_changes = metadata_change_log[
+    metadata_change_log["Value_Pending"].astype(str) != metadata_change_log["Value_Validated"].astype(str)
+].copy()
+
+# 2) Build transition table
+transition_counts = (
+    mcl_changes.groupby(["Field_Changed", "Value_Pending", "Value_Validated"])
+    .size()
+    .reset_index(name="Count")
+)
+
+# 3) Compute % of changes within each field
+transition_counts["Pct_of_Field"] = (
+    transition_counts.groupby("Field_Changed")["Count"]
+    .apply(lambda x: (x / x.sum() * 100).round(2))
+)
+
+# 4) Sort by field + count
+transition_counts = transition_counts.sort_values(
+    ["Field_Changed", "Count"], ascending=[True, False]
+)
+
+# Show top transitions per field
+topN = 10
+top_transitions = (
+    transition_counts.groupby("Field_Changed")
+    .head(topN)
+    .reset_index(drop=True)
+)
+
+display(top_transitions.head(30))  # show a sample across fields
+
+# 5) Optional: bar chart for a given field (e.g., CauseCode)
+field = "CauseCode"
+field_trans = top_transitions[top_transitions["Field_Changed"] == field]
+
+plt.figure(figsize=(10,6))
+plt.barh(
+    [f"{p} → {v}" for p, v in zip(field_trans["Value_Pending"], field_trans["Value_Validated"])],
+    field_trans["Count"]
+)
+plt.title(f"Top {topN} {field} Transitions", fontweight="bold")
+plt.xlabel("Change Count")
+plt.ylabel("Pending → Validated")
+plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.show()
+
+
+
+
+
 # Outputs:
 # - Per-district summary table with core decision metrics
 # - Three matplotlib charts (one per figure):
