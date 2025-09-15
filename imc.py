@@ -1,3 +1,37 @@
+import matplotlib.pyplot as plt
+
+# 1) Get per-district CMI stats
+cmi_summary = (
+    df_cc.groupby("DISTRICTNAME")
+    .apply(lambda g: ( (g["d_CMI"].abs() < 26.5).sum() / g.shape[0] * 100 ).round(2))
+    .reset_index(name="Pct_CMI_Below_26.5")
+)
+
+# 2) Merge with cause code flip rates
+risk_summary = district_summary.merge(cmi_summary, on="DISTRICTNAME", how="left")
+
+# 3) Scatter plot
+plt.figure(figsize=(9,7))
+plt.scatter(
+    risk_summary["Pct_CMI_Below_26.5"],
+    risk_summary["Flip_Rate_pct"],
+    s=100, alpha=0.7
+)
+
+for _, row in risk_summary.iterrows():
+    plt.text(row["Pct_CMI_Below_26.5"]+0.3, row["Flip_Rate_pct"]+0.3, row["DISTRICTNAME"], fontsize=8)
+
+plt.axvline(95, color="green", linestyle="--", label="95% CMI below threshold")
+plt.axhline(10, color="red", linestyle="--", label="10% cause code flip rate")
+plt.xlabel("% outages with CMI < 26.5")
+plt.ylabel("Cause code flip rate (%)")
+plt.title("District Risk Map: CMI Stability vs Cause Code Flips", fontweight="bold")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+
 # All-field transition frequency
 all_transitions = (
     metadata_change_log[
