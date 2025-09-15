@@ -1,3 +1,58 @@
+import matplotlib.pyplot as plt
+
+# Assume you already have:
+# - risk_summary with ["DISTRICTNAME","Pct_CMI_Below_26.5","Flip_Rate_pct"]
+# - df_cc with ["DISTRICTNAME","d_CMI"]
+
+# 1) Identify anomaly districts
+ANOM_THRESH = 300_000
+anomaly_outages = df_cc.loc[df_cc["d_CMI"].abs() > ANOM_THRESH, ["DISTRICTNAME","DISTRB_OUTG_ID"]]
+anomaly_districts = anomaly_outages["DISTRICTNAME"].unique()
+
+# 2) Add a flag to risk_summary
+risk_summary["Has_Anomalies"] = risk_summary["DISTRICTNAME"].isin(anomaly_districts)
+
+# 3) Scatter plot with color by anomaly presence
+plt.figure(figsize=(10,7))
+
+colors = risk_summary["Has_Anomalies"].map({True: "red", False: "steelblue"})
+
+plt.scatter(
+    risk_summary["Pct_CMI_Below_26.5"],
+    risk_summary["Flip_Rate_pct"],
+    s=100, alpha=0.7, c=colors
+)
+
+# Label each point
+for _, row in risk_summary.iterrows():
+    plt.text(row["Pct_CMI_Below_26.5"]+0.3, row["Flip_Rate_pct"]+0.3,
+             row["DISTRICTNAME"], fontsize=8)
+
+# Threshold lines
+plt.axvline(95, color="green", linestyle="--", label="95% CMI below threshold")
+plt.axhline(10, color="red", linestyle="--", label="10% cause code flip rate")
+
+plt.xlabel("% outages with CMI < 26.5")
+plt.ylabel("Cause code flip rate (%)")
+plt.title("District Risk Map: CMI Stability vs Cause Code Flips", fontweight="bold")
+
+# Legend with anomaly marker
+import matplotlib.patches as mpatches
+legend_patches = [
+    mpatches.Patch(color="steelblue", label="No anomalies"),
+    mpatches.Patch(color="red", label="Has anomalies"),
+]
+plt.legend(handles=legend_patches, loc="upper right")
+
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+
 # Thresholds (tune as needed)
 CMI_threshold = 95     # % of outages with d_CMI < 26.5
 Flip_threshold = 10    # % of outages with cause code flip
