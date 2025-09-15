@@ -1,59 +1,62 @@
-
-# Transition Frequency Analysis from metadata_change_log
-# ------------------------------------------------------
-# Expected columns: DISTRB_OUTG_ID, Field_Changed, Value_Pending, Value_Validated
-
-import pandas as pd
-import matplotlib.pyplot as plt
-
 # 1) Filter to actual changes only
 mcl_changes = metadata_change_log[
-    metadata_change_log["Value_Pending"].astype(str) != metadata_change_log["Value_Validated"].astype(str)
+    metadata_change_log["Value_Pending"].astype(str)
+    != metadata_change_log["Value_Validated"].astype(str)
 ].copy()
 
-# 2) Build transition table
+# 2) Transition counts
 transition_counts = (
-    mcl_changes.groupby(["Field_Changed", "Value_Pending", "Value_Validated"])
+    mcl_changes
+    .groupby(["Field_Changed", "Value_Pending", "Value_Validated"], dropna=False)
     .size()
     .reset_index(name="Count")
 )
 
-# 3) Compute % of changes within each field
+# 3) % of field (index-safe with transform)
 transition_counts["Pct_of_Field"] = (
-    transition_counts.groupby("Field_Changed")["Count"]
-    .apply(lambda x: (x / x.sum() * 100).round(2))
-)
+    transition_counts["Count"]
+    / transition_counts.groupby("Field_Changed")["Count"].transform("sum")
+    * 100
+).round(2)
 
-# 4) Sort by field + count
+# 4) Sort and get top N per field
 transition_counts = transition_counts.sort_values(
     ["Field_Changed", "Count"], ascending=[True, False]
 )
-
-# Show top transitions per field
 topN = 10
 top_transitions = (
-    transition_counts.groupby("Field_Changed")
+    transition_counts
+    .groupby("Field_Changed", group_keys=False)
     .head(topN)
     .reset_index(drop=True)
 )
 
-display(top_transitions.head(30))  # show a sample across fields
+# 5) Optional: flag dominant transitions (e.g., >50% of a field’s changes)
+dominant_threshold = 50.0
+top_transitions["Dominant"] = top_transitions["Pct_of_Field"] >= dominant_threshold
 
-# 5) Optional: bar chart for a given field (e.g., CauseCode)
-field = "CauseCode"
-field_trans = top_transitions[top_transitions["Field_Changed"] == field]
+display(top_transitions.head(30))
 
-plt.figure(figsize=(10,6))
-plt.barh(
-    [f"{p} → {v}" for p, v in zip(field_trans["Value_Pending"], field_trans["Value_Validated"])],
-    field_trans["Count"]
-)
-plt.title(f"Top {topN} {field} Transitions", fontweight="bold")
-plt.xlabel("Change Count")
-plt.ylabel("Pending → Validated")
+import matplotlib.pyplot as plt
+
+field = "CauseCode"  # change as needed
+field_trans = top_transitions[top_transitions["Field_Changed"] == field].copy()
+
+plt.figure(figsize=(10, 6))
+labels = [f"{p} → {v}" for p, v in zip(field_trans["Value_Pending"], field_trans["Value_Validated"])]
+plt.barh(labels, field_trans["Count"])
+plt.title(f"Top {topN} {field} transitions", fontweight="bold")
+plt.xlabel("Change count")
 plt.gca().invert_yaxis()
 plt.tight_layout()
 plt.show()
+
+matrix = (
+    mcl_changes[mcl_changes["Field_Changed"] == field]
+    .pivot_table(index="Value_Pending", columns="Value_Validated", values="DISTRB_OUTG_ID", aggfunc="count", fill_value=0)
+)
+display(matrix)
+
 
 
 
