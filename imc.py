@@ -1,4 +1,68 @@
- # Cause Code Audit Log Processor
+# District-level CMI_delta analysis
+# ---------------------------------
+# Assumes df_cc has:
+#   - 'DISTRICTNAME'
+#   - 'CMI_delta' (numeric)
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Config
+MATERIAL_THRESH = 26.5
+
+# Prep
+df_cc = df_cc.copy()
+df_cc["abs_delta"] = pd.to_numeric(df_cc["CMI_delta"], errors="coerce").abs()
+df_cc["material_change"] = df_cc["abs_delta"] > MATERIAL_THRESH
+df_cc["any_change"] = df_cc["abs_delta"] > 0
+
+# District-level summary
+district_summary = (
+    df_cc.groupby("DISTRICTNAME")
+    .agg(
+        N_Outages=("CMI_delta","size"),
+        N_Material=("material_change","sum"),
+        N_AnyChange=("any_change","sum"),
+        Total_Abs_Delta=("abs_delta","sum"),
+        Median_Abs_Delta=("abs_delta","median"),
+        P95_Abs_Delta=("abs_delta", lambda x: np.percentile(x,95))
+    )
+    .reset_index()
+)
+
+# Add rates
+district_summary["Pct_Material"] = (district_summary["N_Material"] / district_summary["N_Outages"] * 100).round(2)
+district_summary["Pct_AnyChange"] = (district_summary["N_AnyChange"] / district_summary["N_Outages"] * 100).round(2)
+
+# Sort for plotting
+district_summary_sorted = district_summary.sort_values("Pct_Material", ascending=False)
+
+display(district_summary_sorted.head(20))
+
+# --- Chart 1: % of outages with material change (>26.5)
+plt.figure(figsize=(9,6))
+plt.barh(district_summary_sorted["DISTRICTNAME"], district_summary_sorted["Pct_Material"])
+plt.xlabel("% outages with |CMI_delta| > 26.5")
+plt.ylabel("District")
+plt.title("Material CMI Changes by District", fontweight="bold")
+plt.tight_layout()
+plt.show()
+
+# --- Chart 2: Total absolute CMI delta by district
+district_summary_vol = district_summary.sort_values("Total_Abs_Delta", ascending=False)
+
+plt.figure(figsize=(9,6))
+plt.barh(district_summary_vol["DISTRICTNAME"], district_summary_vol["Total_Abs_Delta"])
+plt.xlabel("Total |CMI_delta| (sum across outages)")
+plt.ylabel("District")
+plt.title("Total CMI Delta Volume by District", fontweight="bold")
+plt.tight_layout()
+plt.show()
+
+
+
+# Cause Code Audit Log Processor
 # ----------------------------------------------------
 # Inputs:
 #   - df_cc : outage-level dataframe with ['DISTRB_OUTG_ID','DISTRICTNAME']
