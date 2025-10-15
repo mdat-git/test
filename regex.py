@@ -1,3 +1,81 @@
+# --- Archive Operation (revised) ---
+ARCHIVE_OP_DETECT = re.compile(r'(?i)^\s*Archive:')
+
+ARCHIVE_OP_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Archive:\s*
+    \[\s*(?P<op>[^\]]+)\s*\]                 # e.g., "Copy Repair", "Duplicate Details for all locations"
+    (?:                                      # ---- optional "to N <target>[...] ..." tail ----
+        \s*to\s*
+        (?P<count>\d+)\s*
+        (?P<target>(?:crew\s+locations?|locations?))    # "crew location(s)" or "location(s)"
+        \s*\[\s*(?P<linkinfo>[^\]]*)\s*\]               # e.g., "Connected and Linked To CAD"
+        \s*(?P<tail>.*)                                 # e.g., "without data."
+    )?
+    \s*$
+    '''
+)
+
+def _bool_contains(s, pat): return bool(s and re.search(pat, s, flags=re.I))
+
+def archive_op_handler(m):
+    op = (m.group("op") or "").strip()
+    count = m.group("count")
+    target = (m.group("target") or "").strip().lower() or None
+    linkinfo = (m.group("linkinfo") or "").strip() or None
+    tail = (m.group("tail") or "").strip() or None
+
+    meta = {
+        "cat": "ARCHIVE",
+        "kind": "OPERATION",
+        "operation": op,
+        "count": int(count) if count else None,
+        "target": ("CREW_LOCATIONS" if target and "crew" in target else "LOCATIONS") if target else None,
+        "connected": _bool_contains(linkinfo, r'\bConnected\b') if linkinfo else None,
+        "linked_to_cad": _bool_contains(linkinfo, r'\bLinked\s+To\s+CAD\b') if linkinfo else None,
+        "not_linked_to_cad": _bool_contains(linkinfo, r'\bNOT\s+Linked\s+To\s+CAD\b') if linkinfo else None,
+        "without_data": _bool_contains(tail, r'\bwithout\s+data\b') if tail else None,
+        "raw_linkinfo": linkinfo,
+        "raw_tail": tail,
+    }
+
+    # Helpful hint for “all locations” ops without a tail:
+    if re.search(r'(?i)\ball\s+locations\b', op):
+        meta["scope"] = "ALL_LOCATIONS"
+
+    return meta
+
+# keep priority ~90
+
+
+
+
+# --- Incident Archived (revised) ---
+INC_ARCHIVE_DETECT = re.compile(
+    r'(?i)^\s*(?:Incident\s+)?(?:Archived|ARCHIVED)(?:\s+incident)?\b'
+)
+
+INC_ARCHIVE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:Incident\s+)?                 # optional leading "Incident"
+    (?:Archived|ARCHIVED)            # Archived/ARCHIVED
+    (?:\s+incident)?                 # optional trailing "incident"
+    (?:\s+by\s+(?P<user>.+?))?       # <-- plain "by USER" (no brackets), optional
+    \s*$                             # end of line
+    '''
+)
+
+def inc_archive_handler(m):
+    user = (m.group("user") or "").strip() or None
+    return {"cat":"INCIDENT","kind":"ARCHIVED","by_user": user}
+
+# keep your existing priority (e.g., 35)
+
+
+
+
+
 # -------- Archive Snapshot: downstream/premise info for incident device --------
 import re
 from typing import Dict, Any
