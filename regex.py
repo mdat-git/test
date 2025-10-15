@@ -1,3 +1,141 @@
+# -------- Archive Snapshot: downstream/premise info for incident device --------
+import re
+from typing import Dict, Any
+
+ARCH_INFO_DETECT = re.compile(
+    r'(?i)^\s*Archived\s+(?:downstream|premise)\s+info\b'
+)
+
+ARCH_INFO_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Archived\s+
+    (?P<what>downstream|premise)\s+info
+    # optional qualifier in parentheses; may appear as "(...)" or "for (...)"
+    (?:\s*(?:for\s*)?
+        \(\s*
+            (?:
+                (?P<count>\d+)\s*(?P<unit>transformers?|customers?)   # e.g., "3 transformers", "10 customers"
+              | (?P<src>ITC|NCC)                                     # or source tag
+            )
+        \s*\)
+    )?
+    \s*for\s+incident\s+device\s+
+    (?P<device>[A-Za-z0-9\-/]+)                                      # device id token
+    \s*$
+    '''
+)
+
+def arch_info_handler(m: re.Match) -> Dict[str, Any]:
+    what = m.group("what").upper()          # DOWNSTREAM / PREMISE
+    count = m.group("count")
+    unit  = m.group("unit")
+    src   = m.group("src")
+    device = m.group("device")
+    # normalize unit
+    unit_norm = (unit or "").strip().lower() or None
+    if unit_norm:
+        unit_norm = "TRANSFORMERS" if unit_norm.startswith("transformer") else "CUSTOMERS"
+    return {
+        "cat": "ARCHIVE",
+        "kind": f"{what}_INFO",             # DOWNSTREAM_INFO / PREMISE_INFO
+        "device_id": device,
+        "count": int(count) if count else None,
+        "unit": unit_norm,                  # TRANSFORMERS / CUSTOMERS / None
+        "source": (src.upper() if src else None),   # ITC / NCC / None
+    }
+
+# Register with similar priority to other archive ops, but separate from "Archive:" housekeeping.
+rules.append(
+    Rule("Archive Info (Device)", 92, ARCH_INFO_DETECT, ARCH_INFO_EXTRACT, arch_info_handler)
+)
+
+
+
+
+# -------- Archive Operation (Copy ...) --------
+ARCHIVE_OP_DETECT = re.compile(
+    r'(?i)^\s*Archive:'
+)
+
+ARCHIVE_OP_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Archive:\s*
+    \[\s*(?P<op>[^\]]+)\s*\]                # operation, e.g., "Copy Repair"
+    \s*to\s*
+    (?P<count>\d+)\s*
+    (?P<target>(?:crew\s+locations?|locations?))   # "crew location(s)" or "location(s)"
+    \s*
+    \[\s*(?P<linkinfo>[^\]]*)\s*\]          # e.g., "Connected and Linked To CAD"
+    \s*
+    (?P<tail>.*)                             # e.g., "without data."
+    \s*$
+    '''
+)
+
+def _bool_contains(s: str | None, pat: str) -> bool:
+    return bool(s and re.search(pat, s, flags=re.I))
+
+def archive_op_handler(m: re.Match) -> Dict[str, Any]:
+    op = (m.group("op") or "").strip()                 # "Copy Repair", "Copy Occurence", "Copy Remark", "Copy Cause"
+    target = (m.group("target") or "").strip().lower() # "crew location(s)" vs "location(s)"
+    linkinfo = (m.group("linkinfo") or "").strip()
+    tail = (m.group("tail") or "").strip()
+
+    return {
+        "cat": "ARCHIVE",
+        "kind": "OPERATION",
+        "operation": op,                                # normalized name of the operation
+        "count": int(m.group("count")),
+        "target": "CREW_LOCATIONS" if "crew" in target else "LOCATIONS",
+        # connection/link flags parsed from brackets:
+        "connected": _bool_contains(linkinfo, r'\bConnected\b'),
+        "linked_to_cad": _bool_contains(linkinfo, r'\bLinked\s+To\s+CAD\b'),
+        "not_linked_to_cad": _bool_contains(linkinfo, r'\bNOT\s+Linked\s+To\s+CAD\b'),
+        # tail flags:
+        "without_data": _bool_contains(tail, r'\bwithout\s+data\b'),
+        "raw_linkinfo": linkinfo or None,               # keep raw text for audits
+        "raw_tail": tail or None,
+    }
+
+# Priority: after incident/location/crew states; these are admin/housekeeping entries.
+rules.append(
+    Rule("Archive Operation", 90, ARCHIVE_OP_DETECT, ARCHIVE_OP_EXTRACT, archive_op_handler)
+)
+
+
+
+# -------- Incident Archived --------
+import re
+from typing import Dict, Any
+
+INC_ARCHIVE_DETECT = re.compile(
+    r'(?i)^\s*(?:Incident\s+)?(?:Archived|ARCHIVED)(?:\s+incident)?\b'
+)
+
+INC_ARCHIVE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:Incident\s+)?                    # optional leading "Incident"
+    (?:Archived|ARCHIVED)               # Archived (any case)
+    (?:\s+incident)?                    # optional trailing "incident"
+    (?:\s+by\s*\[\s*(?P<user>[^\]]+)\s*\])?   # optional "by [USER]"
+    \s*$
+    '''
+)
+
+def inc_archive_handler(m: re.Match) -> Dict[str, Any]:
+    return {
+        "cat": "INCIDENT",
+        "kind": "ARCHIVED",
+        "by_user": (m.group("user") or None),
+    }
+
+# Priority: close to other incident-level rules, after status changes.
+rules.append(
+    Rule("Incident Archived", 35, INC_ARCHIVE_DETECT, INC_ARCHIVE_EXTRACT, inc_archive_handler)
+)
+
+
 # -------- Location Status (changed status to ...) --------
 import re
 from typing import Dict, Any
