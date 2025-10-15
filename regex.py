@@ -1,3 +1,160 @@
+# -------- Memo Operations (add/change/delete) --------
+import re
+from typing import Dict, Any
+# from ..engine import Rule   # if using package layout
+
+MEMO_DETECT = re.compile(
+    r'(?i)^\s*(?:\[MultiEdit\]\s*)?(?:Added|Changed|Deleted)\b.*\bmemo',  # cheap, robust gate
+)
+
+MEMO_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?P<multi>\[MultiEdit\]\s*)?                     # optional "[MultiEdit]" prefix
+    (?:
+        # ------------------ ADDED ------------------
+        Added\s+(?:new\s+)?memo\s+with\s+id\s+(?P<add_id>\d+)
+      |
+        # ------------------ DELETED ----------------
+        Deleted\s+memo\s+number\s+(?P<del_id>\d+)
+      |
+        Deleted\s+memos\s+having\s+specific\s+incident\s+ids
+        (?P<bulk_del_rest>.*)?                       # no explicit IDs in your examples
+
+      |
+        # ------------------ CHANGED (by incident id) ---------------
+        Changed\s+memo\s+with\s+incident\s+id\s+no\s+(?P<chg_inc>\d+)
+        (?:\s*,\s*outage\s+code\s+updated)?          # optional trailer
+      |
+        # outage datetime of memo with incident id
+        Changed\s+outage\s+datetime\s+of\s+memo\s+with\s+incident\s+id\s+no\s+(?P<chg_out_inc>\d+)
+      |
+        # each memos having incident id
+        Changed\s+each\s+memos?\s+having\s+incident\s+id\s+no\s+(?P<chg_each_inc>\d+)
+      |
+        # ------------------ CHANGED (by memo number) ---------------
+        Changed\s+incident\s+id\s+of\s+memo\s+number\s+(?P<chg_inc_memo>\d+)
+      |
+        Changed\s+outage\s+and\s+upd\s+datetime\s+of\s+memo\s+number\s+(?P<chg_both_memo>\d+)
+      |
+        Changed\s+end\s+datetime\s+of\s+memo\s+number\s+(?P<chg_end_memo>\d+)
+    )
+    \s*$
+    '''
+)
+
+def _fields_from_match(m: re.Match) -> list[str]:
+    """Infer which fields changed from the matched branch/phrase."""
+    if m.group("chg_out_inc"):
+        return ["OUTAGE_DATETIME"]
+    if m.group("chg_both_memo"):
+        return ["OUTAGE_DATETIME", "UPD_DATETIME"]
+    if m.group("chg_end_memo"):
+        return ["END_DATETIME"]
+    if m.group("chg_inc_memo"):
+        return ["INCIDENT_ID"]
+    # Generic 'Changed memo with incident id no ###'
+    if m.group("chg_inc") or m.group("chg_each_inc"):
+        # may also have 'outage code updated' trailer; capture as field
+        text = m.group(0)
+        fields = []
+        if re.search(r'(?i)\boutage\s+code\s+updated\b', text):
+            fields.append("OUTAGE_CODE")
+        # If none detected, mark generic change
+        return fields or ["GENERIC"]
+    return ["GENERIC"]
+
+def memo_handler(m: re.Match) -> Dict[str, Any]:
+    # Which branch fired?
+    meta: Dict[str, Any] = {"cat": "MEMO"}
+    meta["multi_edit"] = bool(m.group("multi"))
+
+    if m.group("add_id"):
+        meta.update({
+            "kind": "ADDED",
+            "memo_id": int(m.group("add_id")),
+        })
+        return meta
+
+    if m.group("del_id"):
+        meta.update({
+            "kind": "DELETED",
+            "memo_id": int(m.group("del_id")),
+        })
+        return meta
+
+    if m.group("bulk_del_rest") is not None:
+        meta.update({
+            "kind": "DELETED",
+            "scope": "MULTIPLE_BY_INCIDENT_IDS",
+            "ids_list_present": False,   # your sample doesn't enumerate them
+        })
+        return meta
+
+    # CHANGED variants by incident id:
+    if m.group("chg_out_inc"):
+        meta.update({
+            "kind": "CHANGED",
+            "incident_id": int(m.group("chg_out_inc")),
+            "fields_changed": ["OUTAGE_DATETIME"],
+        })
+        return meta
+
+    if m.group("chg_each_inc"):
+        meta.update({
+            "kind": "CHANGED",
+            "incident_id": int(m.group("chg_each_inc")),
+            "scope": "EACH_MEMO_FOR_INCIDENT",
+            "fields_changed": ["GENERIC"],
+        })
+        return meta
+
+    if m.group("chg_inc"):
+        fields = _fields_from_match(m)
+        meta.update({
+            "kind": "CHANGED",
+            "incident_id": int(m.group("chg_inc")),
+            "fields_changed": fields,
+        })
+        return meta
+
+    # CHANGED variants by memo number:
+    if m.group("chg_inc_memo"):
+        meta.update({
+            "kind": "CHANGED",
+            "memo_id": int(m.group("chg_inc_memo")),
+            "fields_changed": ["INCIDENT_ID"],
+        })
+        return meta
+
+    if m.group("chg_both_memo"):
+        meta.update({
+            "kind": "CHANGED",
+            "memo_id": int(m.group("chg_both_memo")),
+            "fields_changed": ["OUTAGE_DATETIME", "UPD_DATETIME"],
+        })
+        return meta
+
+    if m.group("chg_end_memo"):
+        meta.update({
+            "kind": "CHANGED",
+            "memo_id": int(m.group("chg_end_memo")),
+            "fields_changed": ["END_DATETIME"],
+        })
+        return meta
+
+    # Fallback (shouldn't hit with our branches)
+    meta.update({"kind": "CHANGED", "fields_changed": ["GENERIC"]})
+    return meta
+
+# Register (admin-ish; after Crew/Location/GO/Calls; before Archive housekeeping if you like)
+rules.append(
+    Rule("Memo Operation", 88, MEMO_DETECT, MEMO_EXTRACT, memo_handler)
+)
+
+
+
+
 ARCHIVE_OP_DETECT = re.compile(r'(?i)^\s*Archive:')
 
 ARCHIVE_OP_EXTRACT = re.compile(
