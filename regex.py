@@ -1,3 +1,47 @@
+# -------- Crew Remark (from CAD) --------
+import re
+from typing import Dict, Any
+
+CREW_REMARK_DETECT = re.compile(
+    r'(?i)^\s*Crew\s*\[\s*[^\]]+\s*\]\s*new\s+remark\s+recorded\b'
+)
+
+# Common shapes:
+#   Crew [9216] new remark recorded [ ... ] from CAD
+#   Crew [9216] new remark recorded [ ... ]
+#   Crew [9216] new remark recorded ... from CAD   (rare no bracket)
+CREW_REMARK_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Crew\s*\[\s*(?P<crew>[^\]]+)\s*\]\s*
+    new\s+remark\s+recorded
+    (?:\s*\[\s*(?P<remark_bracket>[^\]]+)\s*\] | \s+(?P<remark_free>.+?))      # bracketed or free text
+    (?:\s+from\s+(?P<src>CAD))?
+    \s*$
+    '''
+)
+
+def crew_remark_handler(m: re.Match) -> Dict[str, Any]:
+    remark = (m.group("remark_bracket") or m.group("remark_free") or "").strip()
+    return {
+        "cat": "CREW",
+        "kind": "REMARK",
+        "crew_ref": (m.group("crew") or "").strip(),
+        "remark": remark,
+        "source": "CAD" if m.group("src") else None,
+    }
+
+# Priority BEFORE Crew Status
+rules.append(
+    Rule("Crew Remark (CAD)", 45, CREW_REMARK_DETECT, CREW_REMARK_EXTRACT, crew_remark_handler)
+)
+
+
+
+
+
+
+
+
 # -------- GO / Job lifecycle --------
 import re
 from ..engine import Rule  # if you’re inside rules/*.py; else adjust import
