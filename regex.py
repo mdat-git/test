@@ -1,3 +1,59 @@
+# --- Incident Status Change rule ---
+
+INC_STATUS_DETECT = re.compile(
+    r'(?i)\bIncident\s*\[\s*\d+\s*\]\s*change\s*status\s*to\b'
+)
+
+INC_STATUS_EXTRACT = re.compile(
+    r'''(?ix)
+    \bIncident\s*\[\s*(?P<incident_id>\d+)\s*\]\s*
+    change\s*status\s*to\s*[:\-]?\s*
+    (?P<state>[A-Za-z][A-Za-z ]*[A-Za-z])\s*$
+    '''
+)
+
+KNOWN_STATES = {
+    "ASSIGNED": "ASSIGNED",
+    "UNASSIGNED": "UNASSIGNED",
+    "DISPATCHED": "DISPATCHED",
+    "WORKING": "WORKING",
+    "PARTIALLY COMPLETED": "PARTIALLY_COMPLETED",
+    "COMPLETED": "COMPLETED",
+    "ENERGIZED": "ENERGIZED",
+}
+
+def canonicalize_state(s: str) -> tuple[str, str | None]:
+    raw = (s or "").strip()
+    up = re.sub(r'\s+', ' ', raw).upper()
+    canon = KNOWN_STATES.get(up)
+    flag = None if canon else "UNKNOWN_STATE"
+    # fall back to a safe normalized token even if unknown
+    canon = canon or up.replace(' ', '_')
+    return canon, flag
+
+def inc_status_handler(m: re.Match) -> dict:
+    inc_id = m.group("incident_id")
+    state_raw = m.group("state")
+    state_canon, flag = canonicalize_state(state_raw)
+    meta = {
+        "cat": "INCIDENT",
+        "kind": "STATUS",
+        "incident_id": int(inc_id),
+        "state_raw": state_raw.strip(),
+        "state": state_canon,   # canonical
+    }
+    if flag:
+        meta["_flags"] = flag
+    return meta
+
+# Register rule (choose a priority that runs after ETR but before very generic rules)
+rules.append(
+    Rule("Incident Status Change", 30, INC_STATUS_DETECT, INC_STATUS_EXTRACT, inc_status_handler)
+)
+
+
+
+
 import re, json
 import pandas as pd
 from dataclasses import dataclass
