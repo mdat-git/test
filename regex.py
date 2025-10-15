@@ -1,3 +1,64 @@
+# New extractor for ETR and Hanler 
+
+SYSTEM_DETECT = re.compile(r'(?i)^\s*SYSTEM\s+ETR\b')
+
+# Datetime: MM/DD/YYYY HH:MM[:SS]
+DT = r'(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)'
+
+SYSTEM_EXTRACT = re.compile(
+    rf'''(?ix)
+    ^\s*SYSTEM\s+ETR-?\s*
+    (?:
+        # --- (A) Set ETR for @ <Loc> To SYS ETR <to_dt> ---
+        Set\s+ETR\s+for\s+@\s*(?P<loc1>.+?)\s+
+        To\s+(?:(?P<to_type1>SYS)\s+ETR|ETR\s+(?P<to_type1_alt>SYS))\s*[:\-]?\s*
+        (?P<to_dt1>{DT})\s*$
+      |
+        # --- (B) Change for @ <Loc> From [SYS-]<from_dt> To SYS ETR <to_dt> ---
+        Change\s+for\s+@\s*(?P<loc2>.+?)\s+
+        From\s*(?:(?P<from_type2>SYS)\s*)?[:\-]?\s*
+        (?P<from_dt2>{DT})\s+
+        To\s+(?:(?P<to_type2>SYS)\s+ETR|ETR\s+(?P<to_type2_alt>SYS))\s*[:\-]?\s*
+        (?P<to_dt2>{DT})\s*$
+    )
+    '''
+)
+
+from typing import Dict, Any
+
+def sys_handler(m: re.Match) -> Dict[str, Any]:
+    # unify fields across both alternatives
+    loc = m.group("loc1") or m.group("loc2")
+    to_type = (m.group("to_type1") or m.group("to_type1_alt") or
+               m.group("to_type2") or m.group("to_type2_alt") or "SYS").upper()
+
+    to_dt_text = m.group("to_dt1") or m.group("to_dt2")
+    from_type = (m.group("from_type2") or None)
+    from_dt_text = m.group("from_dt2") or None
+
+    meta = {
+        "cat": "ETR",
+        "kind": "SYSTEM",
+        "loc": loc,
+        "etr_from_type": (from_type.upper() if from_type else None),
+        "etr_from_ts": coerce_dt(from_dt_text) if from_dt_text else None,
+        "etr_to_type": to_type,   # always SYS in practice, but normalized anyway
+        "etr_to_ts": coerce_dt(to_dt_text),
+    }
+
+    # Optional sanity check: if both from/to present and to < from, flag it.
+    if meta["etr_from_ts"] is not None and meta["etr_to_ts"] is not None:
+        try:
+            if meta["etr_to_ts"] < meta["etr_from_ts"]:
+                meta["_flags"] = "TO_BEFORE_FROM"
+        except Exception:
+            meta["_flags"] = "DT_PARSE_ERR"
+
+    return meta
+
+
+
+
 # --- Incident Status Change rule ---
 
 INC_STATUS_DETECT = re.compile(
