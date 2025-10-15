@@ -1,3 +1,70 @@
+# -------- Location Status (changed status to ...) --------
+import re
+from typing import Dict, Any
+from ..engine import Rule  # adjust import if not in a package
+
+# Detect ONLY status-change lines; avoids "Energized Date has been set to ..."
+LOC_STATUS_DETECT = re.compile(
+    r'(?i)^\s*Location\s*\[\s*\d+\s*\].*?\bchanged\s+status\s+to\b'
+)
+
+# Examples handled:
+# Location [2049692667] with Priority Score [] changed status to : Energized
+# Location [2049692756] with Priority Score [18.72] changed status to : Working
+# (Priority Score may be empty or absent)
+LOC_STATUS_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Location\s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    (?:with\s+Priority\s+Score\s*\[\s*(?P<ps>[^\]]*)\s*\]\s*)?
+    changed\s+status\s+to\s*:\s*
+    (?P<state>[A-Za-z][A-Za-z ]*[A-Za-z])\s*$
+    '''
+)
+
+LOC_STATES = {
+    "ASSIGNED": "ASSIGNED",
+    "UNASSIGNED": "UNASSIGNED",
+    "DISPATCHED": "DISPATCHED",
+    "WORKING": "WORKING",
+    "COMPLETED": "COMPLETED",
+    "CANCELLED": "CANCELLED",
+    "ENERGIZED": "ENERGIZED",
+}
+
+def _canon_loc_state(s: str):
+    up = re.sub(r'\s+', ' ', s.strip()).upper()
+    canon = LOC_STATES.get(up)
+    return (canon or up.replace(' ', '_')), (None if canon else "UNKNOWN_LOCATION_STATE")
+
+def _to_float_or_none(s: str | None):
+    if s is None: return None
+    s = s.strip()
+    if s == "": return None
+    try: return float(s)
+    except Exception: return None
+
+def loc_status_handler(m: re.Match) -> Dict[str, Any]:
+    state_raw = m.group("state")
+    state, flag = _canon_loc_state(state_raw)
+    meta = {
+        "cat": "LOCATION",
+        "kind": "STATUS",
+        "location_id": int(m.group("loc_id")),
+        "priority_score": _to_float_or_none(m.group("ps")),  # [] -> None, "18.72" -> 18.72
+        "state_raw": state_raw.strip(),
+        "state": state,
+    }
+    if flag:
+        meta["_flags"] = flag
+    return meta
+
+# Register AFTER your future "Location Energized Date Set" rule (which should be higher priority, e.g., 75)
+rules.append(
+    Rule("Location Status Change", 80, LOC_STATUS_DETECT, LOC_STATUS_EXTRACT, loc_status_handler)
+)
+
+
+
 # -------- Call Remark (changed) --------
 import re
 from typing import Dict, Any
