@@ -1,5 +1,39 @@
 import pandas as pd
 
+def fetch_single_incidents(cc, start_date: str, end_date: str):
+    """
+    Return a pandas DataFrame of INCIDENT_IDs that:
+      - are in [start_date, end_date] by i."CREATION_DATETIME"
+      - have exactly one location in HIS_LOCATION
+      - exclude locations with OCCURN_DESC = 'NOT REPORTABLE/ALREADY REPORTED;'
+    """
+    sql = """
+    SELECT
+        i."INCIDENT_ID",
+        i."CREATION_DATETIME",
+        COUNT(DISTINCT l."LOCATION_ID") AS LOCATION_COUNT
+    FROM "OMS"."HIS_INCIDENT" AS i
+    JOIN "OMS"."HIS_LOCATION" AS l
+      ON l."INCIDENT_ID" = i."INCIDENT_ID"
+     AND COALESCE(l."OCCURN_DESC",'') <> ?
+    WHERE i."CREATION_DATETIME" >= ?
+      AND i."CREATION_DATETIME" <= ?
+    GROUP BY i."INCIDENT_ID", i."CREATION_DATETIME"
+    HAVING COUNT(DISTINCT l."LOCATION_ID") = 1
+    ORDER BY i."CREATION_DATETIME"
+    """
+    params = ['NOT REPORTABLE/ALREADY REPORTED;', start_date, end_date]
+    df = pd.read_sql_query(sql, cc.connection, params=params)
+    # HANA will likely return INCIDENT_ID as float64 (DOUBLE). Make it int64 for clean merges.
+    df['INCIDENT_ID'] = df['INCIDENT_ID'].astype('int64')
+    return df
+
+
+
+
+
+import pandas as pd
+
 start_date   = '2025-10-10'
 end_date     = '2025-10-14'
 exclude_desc = 'NOT REPORTABLE/ALREADY REPORTED;'
