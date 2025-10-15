@@ -1,3 +1,97 @@
+from hana_ml.dataframe import ConnectionContext
+import pandas as pd
+from pathlib import Path
+from typing import Iterable, Optional, List
+
+def fetch_single_incident_followups(
+    cc: ConnectionContext,
+    start_date: str,           # 'YYYY-MM-DD'
+    end_date: str,             # 'YYYY-MM-DD'  (inclusive end: use +1 day if you want half-open)
+    incident_date_col: str = 'CREATE_DATE',  # change if your incident date col is different
+    followup_cols: Optional[Iterable[str]] = None,  # columns to pull from HIS_FOLLOWUP
+    chunksize: int = 100_000,
+    parquet_dir: Optional[str] = None        # folder to write chunked Parquet; if None, returns an iterator
+):
+    """
+    Stream HIS_FOLLOWUP rows for incidents in [start_date, end_date]
+    that have exactly one location in HIS_LOCATION.
+
+    Returns:
+      - if parquet_dir is None: yields pandas DataFrame chunks
+      - else: writes Parquet files to parquet_dir and yields their paths
+    """
+    # Default column subset from HIS_FOLLOWUP (adjust as needed)
+    default_cols: List[str] = [
+        '"INCIDENT_ID"',
+        '"FOLLOWUP_TIME"',
+        '"FOLLOWUP_DESC"',
+        '"FOLLOWUP_TYPE"',
+        '"CREATE_USER"',
+        '"CREATE_DATE"'
+    ]
+    select_cols = ',\n    '.join(followup_cols or default_cols)
+
+    # One SQL (CTEs): filter -> enforce single-location -> expand to followups
+    sql = f"""
+    WITH single_incidents AS (
+        SELECT i."INCIDENT_ID"
+        FROM "OMS"."HIS_INCIDENT" AS i
+        JOIN "OMS"."HIS_LOCATION" AS l
+          ON l."INCIDENT_ID" = i."INCIDENT_ID"
+        WHERE i."{incident_date_col}" >= '{start_date}'
+          AND i."{incident_date_col}" <= '{end_date}'
+        GROUP BY i."INCIDENT_ID"
+        HAVING COUNT(DISTINCT l."LOCATION_ID") = 1
+    )
+    SELECT
+        {select_cols}
+    FROM "OMS"."HIS_FOLLOWUP" AS h
+    JOIN single_incidents AS s
+      ON s."INCIDENT_ID" = h."INCIDENT_ID"
+    """
+
+    # Quick server-side sanity count (fast; no fetch of big rows)
+    cnt = cc.sql(f"SELECT COUNT(*) AS N FROM ({sql}) q").collect().iloc[0,0]
+    print(f"[info] rows to fetch: {cnt:,}")
+
+    # Stream rows
+    if parquet_dir:
+        out = Path(parquet_dir); out.mkdir(parents=True, exist_ok=True)
+        for i, chunk in enumerate(pd.read_sql_query(sql, cc.connection, chunksize=chunksize)):
+            path = out / f"single_followup_{i:03}.parquet"
+            chunk.to_parquet(path, index=False)
+            print(f"[info] wrote {path.name}: {len(chunk):,} rows")
+            yield str(path)
+    else:
+        for i, chunk in enumerate(pd.read_sql_query(sql, cc.connection, chunksize=chunksize)):
+            print(f"[info] chunk {i}: {len(chunk):,} rows")
+            yield chunk
+
+# ---------- Example usage ----------
+# cc = ConnectionContext(address="host", port=39015, user="USER", password="PWD", encrypt="true")
+# for p in fetch_single_incident_followups(
+#         cc, start_date="2024-10-10", end_date="2025-10-10",
+#         incident_date_col="CREATE_DATE",
+#         followup_cols=['"INCIDENT_ID"', '"FOLLOWUP_TIME"', '"FOLLOWUP_DESC"'],
+#         chunksize=100_000,
+#         parquet_dir="his_followup_single") :
+#     pass  # files written; iterate again later to read/concat
+#
+# # Or if you want DataFrame chunks directly (no files):
+# for df_chunk in fetch_single_incident_followups(cc, "2024-10-10", "2025-10-10", parquet_dir=None):
+#     # process df_chunk
+#     pass
+
+
+
+
+
+
+
+
+
+
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
