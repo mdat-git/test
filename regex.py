@@ -1,3 +1,84 @@
+# -------- Crew Status (from CAD) --------
+import re
+
+CREW_STATUS_DETECT = re.compile(
+    r'(?i)^\s*Crew\s*\[',  # any Crew[...] line; cheap gate
+)
+
+# One extractor handling all three shapes:
+#  (A) "status changed to [State]"
+#  (B) "status [Assigned] assigned"
+#  (C) "unassigned"
+CREW_STATUS_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Crew
+    \s*\[\s*(?P<crew>[^\]]+)\s*\]\s*
+    (?:
+        # (A) status changed to [State]
+        status\s+changed\s+to\s*\[\s*(?P<state_changed>[^\]]+)\s*\]
+      |
+        # (B) status [State] assigned
+        status\s*\[\s*(?P<state_bracket>[^\]]+)\s*\]\s+assigned
+      |
+        # (C) unassigned (no explicit bracketed state)
+        (?P<unassigned>unassigned)
+    )
+    (?:\s+from\s+(?P<src>CAD))?
+    \s*$
+    '''
+)
+
+CREW_STATE_MAP = {
+    "ASSIGNED": "ASSIGNED",
+    "UNASSIGNED": "UNASSIGNED",
+    "DISPATCHED": "DISPATCHED",
+    "WORKING": "WORKING",
+    "COMPLETED": "COMPLETED",
+}
+
+def _canon_crew_state(s: str | None) -> tuple[str | None, str | None]:
+    """Normalize a state token; return (canonical, flag)."""
+    if not s:
+        return None, None
+    up = re.sub(r'\s+', ' ', s.strip()).upper()
+    canon = CREW_STATE_MAP.get(up)
+    if canon:
+        return canon, None
+    # Unknown—surface but don't fail
+    return up.replace(' ', '_'), "UNKNOWN_CREW_STATE"
+
+def crew_status_handler(m: re.Match) -> dict:
+    crew = (m.group("crew") or "").strip()
+    # Decide which variant matched and pick a raw state
+    if m.group("state_changed"):
+        state_raw = m.group("state_changed")
+    elif m.group("state_bracket"):
+        state_raw = m.group("state_bracket")
+    elif m.group("unassigned"):
+        state_raw = "UNASSIGNED"
+    else:
+        state_raw = None
+
+    state, flag = _canon_crew_state(state_raw)
+    meta = {
+        "cat": "CREW",
+        "kind": "STATUS",
+        "crew_ref": crew,               # e.g., 9216 / 4740 / LC / SAP
+        "state_raw": state_raw,         # original (e.g., "Working")
+        "state": state,                 # canonical (e.g., "WORKING")
+        "source": "CAD" if m.group("src") else None,
+    }
+    if flag:
+        meta["_flags"] = flag
+    return meta
+
+# Register with a sensible priority (after Incident Status)
+rules.append(
+    Rule("Crew Status (CAD)", 50, CREW_STATUS_DETECT, CREW_STATUS_EXTRACT, crew_status_handler)
+)
+
+
+
 # New extractor for ETR and Hanler 
 
 SYSTEM_DETECT = re.compile(r'(?i)^\s*SYSTEM\s+ETR\b')
