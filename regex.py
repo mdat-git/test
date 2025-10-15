@@ -1,3 +1,79 @@
+# -------- GO / Job lifecycle --------
+import re
+from ..engine import Rule  # if you’re inside rules/*.py; else adjust import
+
+GO_DETECT = re.compile(
+    r'(?i)^\s*(?:Complex\s+)?Job\s*\[\s*GO\b'   # cheap gate: Job[...] or Complex Job[...] with GO
+)
+
+# Supports:
+#  - Job [GO 092825-00231] created for Location [2049692667]
+#  - Job [GO 092825-00231] updated
+#  - Complex Job [GO 092825-00259] created for Incident
+GO_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?P<prefix>Complex\s+)?Job
+    \s*\[
+        \s*(?P<go_raw>GO\s*\d{4,}\s*-\s*\d{3,})\s*
+    \]\s*
+    (?:
+        # created for Location [123]
+        created\s+for\s+(?P<tgt_type1>Location)\s*\[\s*(?P<loc_id>\d+)\s*\]
+      |
+        # created for Incident (no id)
+        created\s+for\s+(?P<tgt_type2>Incident)
+      |
+        # updated (no target)
+        (?P<updated>updated)
+    )
+    \s*$
+    '''
+)
+
+def _norm_go_id(go_raw: str) -> str:
+    # "GO 092825-00231" -> "GO092825-00231"
+    return re.sub(r'\s+', '', go_raw)
+
+def job_handler(m: re.Match) -> dict:
+    go_raw = m.group("go_raw")
+    go_id = go_raw.strip()
+    go_norm = _norm_go_id(go_id)
+
+    if m.group("updated"):
+        kind = "UPDATED"
+        tgt_type = None
+        tgt_id = None
+    elif m.group("tgt_type1"):  # Location
+        kind = "CREATED"
+        tgt_type = "LOCATION"
+        tgt_id = m.group("loc_id")
+    elif m.group("tgt_type2"):  # Incident
+        kind = "CREATED"
+        tgt_type = "INCIDENT"
+        tgt_id = None
+    else:
+        kind = "UNKNOWN"
+        tgt_type = None
+        tgt_id = None
+
+    return {
+        "cat": "JOB",
+        "kind": kind,                   # CREATED / UPDATED
+        "go_id": go_id,                 # "GO 092825-00231"
+        "go_id_norm": go_norm,          # "GO092825-00231" (join-friendly)
+        "target_type": tgt_type,        # LOCATION / INCIDENT / None
+        "target_id": (int(tgt_id) if tgt_id else None),
+        "is_complex": bool(m.group("prefix")),  # Complex Job vs Job
+    }
+
+# Register (after Crew/Incident; before very generic rules)
+rules.append(
+    Rule("GO Job Lifecycle", 70, GO_DETECT, GO_EXTRACT, job_handler)
+)
+
+
+
 # -------- Crew Status (from CAD) --------
 import re
 
