@@ -1,3 +1,197 @@
+# --- Incident Details Accessed ---
+import re
+from typing import Dict, Any
+
+INC_DETAILS_DETECT = re.compile(r'(?i)^\s*Incident\s+details\s+accessed\b')
+
+INC_DETAILS_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Incident\s+details\s+accessed
+    (?:\s+for\s+the\s+first\s+time)?      # optional "for the first time"
+    \s*$
+    '''
+)
+
+def inc_details_handler(m: re.Match) -> Dict[str, Any]:
+    first = bool(re.search(r'(?i)for\s+the\s+first\s+time', m.group(0)))
+    return {
+        "cat": "INCIDENT",
+        "kind": "DETAILS_ACCESSED_FIRST" if first else "DETAILS_ACCESSED",
+        "first_time": first,
+    }
+
+rules.append(
+    Rule("Incident Details Accessed", 31, INC_DETAILS_DETECT, INC_DETAILS_EXTRACT, inc_details_handler)
+)
+
+
+
+# --- Incident Analyzed (optional device set) ---
+INC_ANALYZED_DETECT = re.compile(r'(?i)^\s*Incident\s+Analyzed\b')
+
+INC_ANALYZED_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Incident\s+Analyzed\.?                # "Incident Analyzed" with optional period
+    (?:\s*                                     # optional trailing device assignment clause
+        Incident\s+Device\s+set\s+to\s*
+        \[\s*(?P<dev_id>[^\]]+)\s*\]\s*
+        (?P<dev_label>[A-Za-z0-9_\-]+)
+    )?
+    \s*$
+    '''
+)
+
+def inc_analyzed_handler(m: re.Match) -> Dict[str, Any]:
+    dev_id = (m.group("dev_id") or "").strip() or None
+    dev_label = (m.group("dev_label") or "").strip() or None
+    return {
+        "cat": "INCIDENT",
+        "kind": "ANALYZED",
+        "device_id": dev_id,
+        "device_label": dev_label,
+    }
+
+rules.append(
+    Rule("Incident Analyzed", 32, INC_ANALYZED_DETECT, INC_ANALYZED_EXTRACT, inc_analyzed_handler)
+)
+
+
+# --- Incident Device main call changed ---
+INC_MAINCALL_DETECT = re.compile(
+    r'(?i)^\s*Change\s+Incident\s+Device\s+main\s+call\s+to\b'
+)
+
+INC_MAINCALL_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Change\s+Incident\s+Device\s+main\s+call\s+to\s*
+    \[\s*(?P<dev_id>[^\]]+)\s*\]
+    \s*$
+    '''
+)
+
+def inc_maincall_handler(m: re.Match) -> Dict[str, Any]:
+    return {
+        "cat": "INCIDENT",
+        "kind": "DEVICE_MAIN_CALL_CHANGED",
+        "device_id": (m.group("dev_id") or "").strip(),
+    }
+
+rules.append(
+    Rule("Incident Device Main Call Changed", 33, INC_MAINCALL_DETECT, INC_MAINCALL_EXTRACT, inc_maincall_handler)
+)
+
+
+
+
+# -------- Location Energized Date (set / change / remove) --------
+import re
+import pandas as pd
+from typing import Dict, Any
+
+# High priority: actual field change
+LOC_ENERGIZED_DETECT = re.compile(
+    r'(?i)^\s*(?:His\s+)?Location\s*\[\s*\d+\s*\]\s*Energized\s+Date\s+has\s+been\b'
+)
+
+# We support:
+#  A) "... set to [ <any text, possibly empty> ]"
+#  B) "... Change from [ <any> ] to [ <any> ]"
+#  C) "... removed"
+LOC_ENERGIZED_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:His\s+)?Location
+    \s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    Energized\s+Date\s+has\s+been\s+
+    (?:
+        # (A) set to [...]
+        set\s+to\s*\[\s*(?P<set_val>.*?)\s*\]
+      |
+        # (B) Change from [...] to [...]
+        Change\s+from\s*\[\s*(?P<from_val>.*?)\s*\]\s*to\s*\[\s*(?P<to_val>.*?)\s*\]
+      |
+        # (C) removed
+        removed
+    )
+    \s*$
+    '''
+)
+
+def _coerce_dt_maybe(s: str | None):
+    """'' or None -> None; else best-effort to pandas timestamp."""
+    if s is None: 
+        return None
+    s2 = s.strip()
+    if s2 == "":
+        return None
+    return pd.to_datetime(s2, errors="coerce")
+
+def _etr_delta_and_flag(from_ts, to_ts):
+    if from_ts is None or to_ts is None:
+        return None, None
+    if pd.isna(from_ts) or pd.isna(to_ts):
+        return None, "DT_PARSE_ERR"
+    delta = (to_ts - from_ts).total_seconds() / 60.0
+    if delta < 0:
+        return delta, "TO_BEFORE_FROM"
+    elif delta > 0:
+        return delta, "TO_AFTER_FROM"
+    else:
+        return 0.0, "TO_EQUAL_FROM"
+
+def loc_energized_handler(m: re.Match) -> Dict[str, Any]:
+    loc_id = int(m.group("loc_id"))
+    set_val  = m.group("set_val")
+    from_val = m.group("from_val")
+    to_val   = m.group("to_val")
+
+    if set_val is not None:
+        # (A) SET
+        new_ts = _coerce_dt_maybe(set_val)
+        return {
+            "cat": "LOCATION",
+            "kind": "ENERGIZED_DATE_SET",
+            "location_id": loc_id,
+            "new_ts": new_ts,
+        }
+
+    if from_val is not None or to_val is not None:
+        # (B) CHANGE
+        from_ts = _coerce_dt_maybe(from_val)
+        to_ts   = _coerce_dt_maybe(to_val)
+        delta, flag = _etr_delta_and_flag(from_ts, to_ts)
+        meta = {
+            "cat": "LOCATION",
+            "kind": "ENERGIZED_DATE_CHANGED",
+            "location_id": loc_id,
+            "old_ts": from_ts,
+            "new_ts": to_ts,
+            "delta_min": delta,      # + => moved later, - => earlier
+        }
+        if flag:
+            meta["_flags"] = flag
+        return meta
+
+    # (C) REMOVED
+    return {
+        "cat": "LOCATION",
+        "kind": "ENERGIZED_DATE_REMOVED",
+        "location_id": loc_id,
+    }
+
+# Register BEFORE Location Status (e.g., 75 vs 80)
+rules.append(
+    Rule("Location Energized Date", 75, LOC_ENERGIZED_DETECT, LOC_ENERGIZED_EXTRACT, loc_energized_handler)
+)
+
+
+
+
+
+
+
+
+
 # -------- Memo Operations (add/change/delete) --------
 import re
 from typing import Dict, Any
