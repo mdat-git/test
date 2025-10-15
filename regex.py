@@ -1,3 +1,106 @@
+# -------- Location Date Field (Energized / Initial / Estimated Restore) --------
+import re
+import pandas as pd
+from typing import Dict, Any
+
+# High priority: field change > status chatter
+LOC_DATE_DETECT = re.compile(
+    r'(?i)^\s*(?:His\s+)?Location\s*\[\s*\d+\s*\]\s*'
+    r'(?:Energized|Initial|Estimated\s+Restore)\s+Date\s+has\s+been\b'
+)
+
+LOC_DATE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:His\s+)?Location
+    \s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    (?P<field>Energized|Initial|Estimated\s+Restore)\s+Date\s+has\s+been\s+
+    (?:
+        # (A) set to [...]
+        set\s+to\s*\[\s*(?P<set_val>.*?)\s*\]
+      |
+        # (B) Change/Changed from [...] to [...]
+        (?:Change|Changed)\s+from\s*\[\s*(?P<from_val>.*?)\s*\]\s*to\s*\[\s*(?P<to_val>.*?)\s*\]
+      |
+        # (C) removed
+        removed
+    )
+    \s*$
+    '''
+)
+
+def _coerce_dt_maybe(s: str | None):
+    if s is None: return None
+    s2 = s.strip()
+    if s2 == "": return None
+    return pd.to_datetime(s2, errors="coerce")
+
+def _delta_flag(from_ts, to_ts):
+    if from_ts is None or to_ts is None: return None, None
+    if pd.isna(from_ts) or pd.isna(to_ts): return None, "DT_PARSE_ERR"
+    dmin = (to_ts - from_ts).total_seconds() / 60.0
+    if dmin < 0:   return dmin, "TO_BEFORE_FROM"
+    if dmin > 0:   return dmin, "TO_AFTER_FROM"
+    return 0.0, "TO_EQUAL_FROM"
+
+FIELD_MAP = {
+    "ENERGIZED": "ENERGIZED",
+    "INITIAL": "INITIAL",
+    "ESTIMATED RESTORE": "ESTIMATED_RESTORE",
+}
+
+def _canon_field(s: str) -> str:
+    up = re.sub(r'\s+', ' ', s.strip()).upper()
+    return FIELD_MAP.get(up, up.replace(' ', '_'))
+
+def loc_date_handler(m: re.Match) -> Dict[str, Any]:
+    loc_id = int(m.group("loc_id"))
+    field  = _canon_field(m.group("field"))
+
+    # (A) SET
+    if m.group("set_val") is not None:
+        new_ts = _coerce_dt_maybe(m.group("set_val"))
+        return {
+            "cat": "LOCATION_DATE",
+            "action": "SET",
+            "field": field,                 # ENERGIZED / INITIAL / ESTIMATED_RESTORE
+            "location_id": loc_id,
+            "new_ts": new_ts,
+        }
+
+    # (B) CHANGE
+    if m.group("from_val") is not None or m.group("to_val") is not None:
+        old_ts = _coerce_dt_maybe(m.group("from_val"))
+        new_ts = _coerce_dt_maybe(m.group("to_val"))
+        delta, flag = _delta_flag(old_ts, new_ts)
+        meta = {
+            "cat": "LOCATION_DATE",
+            "action": "CHANGED",
+            "field": field,
+            "location_id": loc_id,
+            "old_ts": old_ts,
+            "new_ts": new_ts,
+            "delta_min": delta,            # + later, - earlier
+        }
+        if flag: meta["_flags"] = flag
+        return meta
+
+    # (C) REMOVED
+    return {
+        "cat": "LOCATION_DATE",
+        "action": "REMOVED",
+        "field": field,
+        "location_id": loc_id,
+    }
+
+# Register BEFORE Location Status (e.g., 75 < 80)
+rules.append(
+    Rule("Location Date Field", 75, LOC_DATE_DETECT, LOC_DATE_EXTRACT, loc_date_handler)
+)
+
+
+
+
 # -------- Cause / Occurrence recorded from CAD (global) --------
 import re
 from typing import Dict, Any
