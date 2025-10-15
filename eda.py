@@ -1,3 +1,122 @@
+import re
+from typing import Optional, Dict, Tuple
+
+FLAGS = re.I  # case-insensitive
+
+# ---------- ETR patterns ----------
+# We try to capture: source (SYSTEM/MANUAL), action, final ETR datetime, and any free-text location.
+ETR_PATTERNS = [
+    # SYSTEM ETR set → final SYS ETR time
+    (re.compile(
+        r'\bSYSTEM\s+ETR\b.*?\bSET\s+ETR\b.*?\bTO\s+SYS\s+ETR\s+(?P<etr_ts>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)',
+        FLAGS),
+     {"cat": "ETR", "sub": "SET", "source": "SYSTEM"}),
+
+    # MANUAL ETR set → final MAN ETR time
+    (re.compile(
+        r'\bMANUAL\s+ETR\b.*?\bSET\s+ETR\b.*?\bTO\s+MAN\s+ETR\s*:?\s*(?P<etr_ts>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)',
+        FLAGS),
+     {"cat": "ETR", "sub": "SET", "source": "MANUAL"}),
+
+    # Disable ETR re-calculation (system or manual text often prefixes)
+    (re.compile(
+        r'\b(DISABLE|STOP)\s+ETR\s*RE-?CALC(ULATION)?\b',
+        FLAGS),
+     {"cat": "ETR", "sub": "DISABLE", "source": None}),
+
+    # Generic SYSTEM ETR “change” lines → take the final SYS ETR
+    (re.compile(
+        r'\bSYSTEM\s+ETR\b.*?\bCHANGE\b.*?\bTO\s+SYS\s+ETR\s+(?P<etr_ts>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)',
+        FLAGS),
+     {"cat": "ETR", "sub": "CHANGE", "source": "SYSTEM"}),
+
+    # Fallback: any line mentioning ETR → try to grab a trailing date-time
+    (re.compile(
+        r'\bETR\b.*?(?P<etr_ts>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}(?::\d{2})?)',
+        FLAGS),
+     {"cat": "ETR", "sub": "UNCLASSIFIED", "source": None}),
+]
+
+# ---------- CAUSE patterns ----------
+# Capture a normalized "final" cause string inside brackets when present.
+CAUSE_PATTERNS = [
+    # New cause code recorded [XXXX]
+    (re.compile(
+        r'^New\s+cause\s+code\s+recorded\s*\[(?P<cause>[^\]]+)\]',
+        FLAGS),
+     {"cat": "CAUSE", "sub": "NEW"}),
+
+    # Incident [id] Cause has been set to [XXXX] from CAD
+    (re.compile(
+        r'Cause\s+has\s+been\s+set\s+to\s*\[(?P<cause>[^\]]+)\]',
+        FLAGS),
+     {"cat": "CAUSE", "sub": "SET"}),
+
+    # Cause has been apply to all locations (propagation)
+    (re.compile(
+        r'Cause\s+has\s+been\s+apply\s+to\s+all\s+locations',
+        FLAGS),
+     {"cat": "CAUSE", "sub": "APPLY_ALL"}),
+
+    # Cause has been removed
+    (re.compile(
+        r'Cause\s+has\s+been\s+removed',
+        FLAGS),
+     {"cat": "CAUSE", "sub": "REMOVE"}),
+
+    # Generic CAUSE line + bracket capture
+    (re.compile(
+        r'\bCAUSE\b.*?\[(?P<cause>[^\]]+)\]',
+        FLAGS),
+     {"cat": "CAUSE", "sub": "UNCLASSIFIED"}),
+]
+
+# ---------- AMI CALL patterns ----------
+# Example: "Call reported at 2024/10/10 02:01:57 for Transformer [XXXXX] ... with AMI ESC METER"
+AMI_PATTERNS = [
+    (re.compile(
+        r'^Call\s+reported\s+at\s+(?P<call_ts>\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}).*?\[(?P<asset>[0-9A-Z]+)\].*?\bAMI\b.*\bMETER\b',
+        FLAGS),
+     {"cat": "AMI_CALL", "sub": "REPORTED"}),
+]
+
+# ---------- Master dispatcher ----------
+PATTERN_SETS = ETR_PATTERNS + CAUSE_PATTERNS + AMI_PATTERNS
+
+def classify_event(text: Optional[str]) -> Tuple[str, Dict[str, Optional[str]]]:
+    """
+    Returns (label, extras) where label is one of:
+      - ETR|CAUSE|AMI_CALL|OTHER
+    'extras' may include: etr_ts, source, cause, call_ts, asset, sub
+    """
+    s = (text or "").strip()
+    for rx, base in PATTERN_SETS:
+        m = rx.search(s)
+        if m:
+            info = dict(base)  # copy
+            # attach optional groups if present
+            for k in ("etr_ts", "cause", "call_ts", "asset"):
+                if k in m.re.groupindex:
+                    info[k] = m.group(k)
+            return info["cat"], info
+    return "OTHER", {"cat": "OTHER", "sub": None}
+
+# ---------- Vectorized tagging helper ----------
+def tag_events(df, col="FOLLOWUP_DESC"):
+    out = df[col].apply(lambda x: classify_event(x))
+    df["event_cat"] = out.map(lambda t: t[0])
+    df["event_meta"] = out.map(lambda t: t[1])  # dict per row (keep for debugging)
+    # Lift common fields to columns for ease of use
+    df["event_sub"]   = df["event_meta"].map(lambda d: d.get("sub"))
+    df["etr_source"]  = df["event_meta"].map(lambda d: d.get("source"))
+    df["etr_ts_txt"]  = df["event_meta"].map(lambda d: d.get("etr_ts"))
+    df["cause_code"]  = df["event_meta"].map(lambda d: d.get("cause"))
+    df["ami_call_ts"] = df["event_meta"].map(lambda d: d.get("call_ts"))
+    df["ami_asset"]   = df["event_meta"].map(lambda d: d.get("asset"))
+    return df
+
+
+
 import pandas as pd
 
 def fetch_single_incidents(cc, start_date: str, end_date: str):
