@@ -1,3 +1,57 @@
+ARCHIVE_OP_DETECT = re.compile(r'(?i)^\s*Archive:')
+
+ARCHIVE_OP_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Archive:\s*
+    \[\s*(?P<op>[^\]]+)\s*\]
+    (?:                                     # ---- optional tail ----
+        \s*to\s*
+        (?P<count>\d+)\s*                   # <-- digits only
+        (?P<target>                         # crew locations / crew of locations / locations
+            (?:crew\s+(?:of\s+)?locations?) |
+            (?:locations?)
+        )
+        \s*\[\s*(?P<linkinfo>[^\]]*)\s*\]   # e.g., "NCC and Linked To Cad"
+        \s*(?P<tail>.*)                     # e.g., "without data."
+    )?
+    \s*$
+    '''
+)
+
+def archive_op_handler(m):
+    op       = (m.group("op") or "").strip()
+    count    = int(m.group("count")) if m.group("count") else None
+    target_s = (m.group("target") or "").strip().lower() or None
+    linkinfo = (m.group("linkinfo") or "").strip() or None
+    tail     = (m.group("tail") or "").strip() or None
+
+    target = None
+    if target_s:
+        target = "CREW_LOCATIONS" if "crew" in target_s else "LOCATIONS"
+
+    def _contains(s, pat): return bool(s and re.search(pat, s, flags=re.I))
+
+    meta = {
+        "cat": "ARCHIVE",
+        "kind": "OPERATION",
+        "operation": op,
+        "count": count,                 # integer or None
+        "target": target,               # CREW_LOCATIONS / LOCATIONS / None
+        "ncc": _contains(linkinfo, r'\bNCC\b') if linkinfo else None,
+        "itc": _contains(linkinfo, r'\bITC\b') if linkinfo else None,
+        "connected": _contains(linkinfo, r'\bConnected\b') if linkinfo else None,
+        "linked_to_cad": _contains(linkinfo, r'\bLinked\s+To\s+CAD\b') if linkinfo else None,
+        "not_linked_to_cad": _contains(linkinfo, r'\bNOT\s+Linked\s+To\s+CAD\b') if linkinfo else None,
+        "without_data": _contains(tail, r'\bwithout\s+data\b') if tail else None,
+        "raw_linkinfo": linkinfo or None,
+        "raw_tail": tail or None,
+    }
+    if re.search(r'(?i)\ball\s+locations\b', op):
+        meta["scope"] = "ALL_LOCATIONS"
+    return meta
+
+
+
 # --- Archive Operation (revised) ---
 ARCHIVE_OP_DETECT = re.compile(r'(?i)^\s*Archive:')
 
