@@ -1,3 +1,61 @@
+import pandas as pd
+
+start_date   = '2025-10-10'
+end_date     = '2025-10-14'
+exclude_desc = 'NOT REPORTABLE/ALREADY REPORTED;'
+
+# your SELECT list (already qualified with h.)
+select_cols = """
+  h."INCIDENT_ID",
+  h."FOLLOWUP_ID",
+  h."FOLLOWUP_DATETIME",
+  h."FOLLOWUP_TYPE",
+  h."FOLLOWUP_DESC",
+  h."SYSTEM_OPID"
+"""
+
+sql = f"""
+WITH single_incidents AS (
+  SELECT i."INCIDENT_ID"
+  FROM "OMS"."HIS_INCIDENT" AS i
+  JOIN "OMS"."HIS_LOCATION" AS l
+    ON l."INCIDENT_ID" = i."INCIDENT_ID"
+   AND COALESCE(l."OCCURN_DESC",'') <> ?         -- param #1
+  WHERE i."CREATION_DATETIME" >= ?               -- param #2
+    AND i."CREATION_DATETIME" <= ?               -- param #3
+  GROUP BY i."INCIDENT_ID"
+  HAVING COUNT(DISTINCT l."LOCATION_ID") = 1
+)
+SELECT
+  {select_cols}
+FROM "OMS"."HIS_FOLLOWUP" AS h
+JOIN single_incidents AS s
+  ON s."INCIDENT_ID" = h."INCIDENT_ID"
+"""
+
+params = [exclude_desc, start_date, end_date]
+
+# fast server-side count (no big fetch)
+cnt = pd.read_sql_query(f'SELECT COUNT(*) AS N FROM ({sql}) q',
+                        cc.connection, params=params).iloc[0,0]
+print('[info] rows to fetch:', cnt)
+
+# stream results (no parquet; process in memory by chunks)
+for i, chunk in enumerate(pd.read_sql_query(sql, cc.connection,
+                                            params=params, chunksize=100_000)):
+    print(f'[info] chunk {i}: {len(chunk)} rows')
+    # process chunk here (merge/agg/etc.)
+
+
+
+
+
+
+
+
+
+
+
 from hana_ml.dataframe import ConnectionContext
 import pandas as pd
 from pathlib import Path
