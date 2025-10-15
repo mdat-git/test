@@ -1,3 +1,100 @@
+# -------- Call Remark (changed) --------
+import re
+from typing import Dict, Any
+
+CALL_REMARK_DETECT = re.compile(
+    r'(?i)^\s*Call\s+remark\s+has\s+been\s+changed\s+to\b'
+)
+
+CALL_REMARK_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Call\s+remark\s+has\s+been\s+changed\s+to
+    \s*\[\s*(?P<remark>[^\]]+)\s*\]\s*$
+    '''
+)
+
+def call_remark_handler(m: re.Match) -> Dict[str, Any]:
+    return {
+        "cat": "CALL",
+        "kind": "REMARK_CHANGED",
+        "remark": m.group("remark").strip(),
+    }
+
+# Priority: before generic call-reported, no overlap with crew
+rules.append(
+    Rule("Call Remark Changed", 40, CALL_REMARK_DETECT, CALL_REMARK_EXTRACT, call_remark_handler)
+)
+
+
+# -------- Call Reported --------
+
+CALL_REPORTED_DETECT = re.compile(
+    r'(?i)^\s*(?:SCADA|ADMS)?\s*Call\s+reported\b'
+)
+
+# YYYY/MM/DD HH:MM:SS
+DTY = r'\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}'
+
+CALL_REPORTED_EXTRACT = re.compile(
+    rf'''(?ix)
+    ^\s*
+    (?:(?P<src>SCADA|ADMS)\s+)?          # optional source prefix
+    Call\s+reported\s+at\s+
+    (?:
+        # (A) Bracket form: [ID] LABEL with TEXT
+        \[\s*(?P<br_id>[^\]]+)\s*\]\s*(?P<br_label>\S+)\s+with\s+(?P<br_with>.+)
+      |
+        # (B) Timestamped transformer form
+        (?P<ts>{DTY})\s+for\s+(?:this\s+)?Transformer\s*
+        \[\s*(?P<x_id>[\w\-]+)\s*\]\s*(?P<x_label>\S+)
+        (?:\s+with\s+(?P<x_with>.+))?
+    )
+    \s*$
+    '''
+)
+
+def call_reported_handler(m: re.Match) -> Dict[str, Any]:
+    src = (m.group("src") or "").upper() or None
+    # Decide which branch matched (A vs B)
+    if m.group("br_id"):
+        # Bracket variant (SCADA/ADMS)
+        with_text = (m.group("br_with") or "").strip()
+        ami = bool(re.search(r'(?i)\bAMI\b', with_text))
+        return {
+            "cat": "CALL",
+            "kind": "REPORTED",
+            "source": src,                        # SCADA / ADMS / None
+            "form": "BRACKET",
+            "entity_id": m.group("br_id").strip(),    # e.g., 08270 / 1655681E
+            "entity_label": m.group("br_label").strip(),  # e.g., 08270 / P5399616-B
+            "channel": "AMI" if ami else None,
+            "with_text": with_text,              # raw tail, e.g., "OPEN OPEN SW/CREATE INC"
+            "reported_ts": None,                 # no timestamp in this shape
+        }
+    else:
+        # Timestamped transformer variant
+        with_text = (m.group("x_with") or "").strip()
+        ami = bool(re.search(r'(?i)\bAMI\b', with_text))
+        return {
+            "cat": "CALL",
+            "kind": "REPORTED",
+            "source": src,                        # usually None for these lines
+            "form": "TRANSFORMER",
+            "reported_ts": pd.to_datetime(m.group("ts"), errors="coerce"),
+            "asset_type": "TRANSFORMER",
+            "asset_id": m.group("x_id").strip(),     # e.g., 5399616
+            "asset_label": m.group("x_label").strip(),  # e.g., P5399616
+            "channel": "AMI" if ami else None,        # AMI vs non-AMI
+            "with_text": with_text,                   # e.g., "AMI ESC METER"
+        }
+
+# Priority: put around 60–65 (after Incident/Crew/Crew Remark, before GO if you prefer)
+rules.append(
+    Rule("Call Reported", 60, CALL_REPORTED_DETECT, CALL_REPORTED_EXTRACT, call_reported_handler)
+)
+
+
+
 # -------- Crew Remark (from CAD) --------
 import re
 from typing import Dict, Any
