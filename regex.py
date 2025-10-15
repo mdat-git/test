@@ -1,120 +1,114 @@
-import re
+import re, json
 import pandas as pd
-import numpy as np
+from dataclasses import dataclass
+from typing import Callable, Dict, Optional, Pattern, Any, List
 
-# --- CONFIG ---
-DESC_COL = "FOLLOWUP_DESC"  # change if your column name differs
+DESC_COL = "FOLLOWUP_DESC"
 
-# --- SIMPLE TAG DETECTORS (fast routing) ---
-SYSTEM_ETR_TAG = re.compile(r'(?i)^\s*SYSTEM\s+ETR\b')
-MANUAL_ETR_TAG = re.compile(r'(?i)^\s*MANUAL\s+ETR\b')
-
-# --- DETAILED EXTRACTORS (with named groups) ---
-
-# Datetime is MM/DD/YYYY HH:MM[:SS]
+# ---------- Shared ----------
 DT = r'(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}(?::\d{2})?)'
+def coerce_dt(s: Optional[str]):
+    return pd.to_datetime(s, errors="coerce") if s else None
 
-SYSTEM_ETR_EXTRACTOR = re.compile(
-    rf'''(?ix)                           # i: case-insensitive, x: verbose
-    ^\s*SYSTEM\s+ETR-?\s*Set\s+ETR\s+for\s+@\s*
-    (?P<loc>.+?)\s+                      # location (non-greedy)
+@dataclass(frozen=True)
+class Rule:
+    name: str
+    priority: int
+    detect: Pattern
+    extract: Optional[Pattern] = None
+    handler: Optional[Callable[[re.Match], Dict[str, Any]]] = None  # returns event_meta dict
+
+def apply_rules(text: str, rules: List[Rule]) -> Dict[str, Any]:
+    s = (text or "").strip()
+    for rule in sorted(rules, key=lambda r: r.priority):
+        if rule.detect.search(s):
+            flags = None
+            event_meta: Dict[str, Any] = {}
+            if rule.extract:
+                m = rule.extract.search(s)
+                if not m:
+                    return {"Tag": rule.name, "Flags": "PARSE_FAIL", "event_meta": {}}
+                if rule.handler:
+                    event_meta = rule.handler(m)
+                    # Handler can set its own flags inside meta; bubble up if present
+                    flags = event_meta.pop("_flags", None)
+            return {"Tag": rule.name, "Flags": flags, "event_meta": event_meta}
+    return {"Tag": None, "Flags": None, "event_meta": {}}
+
+# ---------- ETR rules ----------
+SYSTEM_DETECT = re.compile(r'(?i)^\s*SYSTEM\s+ETR\b')
+SYSTEM_EXTRACT = re.compile(
+    rf'''(?ix)
+    ^\s*SYSTEM\s+ETR-?\s*Set\s+ETR\s+for\s+@\s*(?P<loc>.+?)\s+
     To\s+(?:(?P<to_type>SYS)\s+ETR|ETR\s+(?P<to_type_alt>SYS))\s*[:\-]?\s*
     (?P<to_dt>{DT})\s*$
     '''
 )
+def sys_handler(m: re.Match) -> Dict[str, Any]:
+    to_type = (m.group("to_type") or m.group("to_type_alt") or "SYS").upper()
+    return {
+        "cat": "ETR",
+        "kind": "SYSTEM",
+        "loc": m.group("loc"),
+        "etr_from_type": None,
+        "etr_from_ts": None,
+        "etr_to_type": to_type,
+        "etr_to_ts": coerce_dt(m.group("to_dt")),
+    }
 
-MANUAL_ETR_EXTRACTOR = re.compile(
+MAN_DETECT = re.compile(r'(?i)^\s*MANUAL\s+ETR\b')
+MAN_EXTRACT = re.compile(
     rf'''(?ix)
-    ^\s*MANUAL\s+ETR-?\s*Set\s+ETR\s+for\s+@\s*
-    (?P<loc>.+?)\s+
-    From\s+ETR\s+(?P<from_type>MAN|SYS)\s*[:\-]?\s*
-    (?P<from_dt>{DT})\s+
-    To\s+(?:(?P<to_type>MAN)\s+ETR|ETR\s+(?P<to_type_alt>MAN))\s*[:\-]?\s*
-    (?P<to_dt>{DT})\s*$
+    ^\s*MANUAL\s+ETR-?\s*Set\s+ETR\s+for\s+@\s*(?P<loc>.+?)\s+
+    From\s+ETR\s+(?P<from_type>MAN|SYS)\s*[:\-]?\s*(?P<from_dt>{DT})\s+
+    To\s+(?:(?P<to_type>MAN)\s+ETR|ETR\s+(?P<to_type_alt>MAN))\s*[:\-]?\s*(?P<to_dt>{DT})\s*$
     '''
 )
+def man_handler(m: re.Match) -> Dict[str, Any]:
+    from_type = (m.group("from_type") or "").upper()
+    to_type = (m.group("to_type") or m.group("to_type_alt") or "MAN").upper()
+    from_dt = coerce_dt(m.group("from_dt"))
+    to_dt = coerce_dt(m.group("to_dt"))
+    flags = None
+    if pd.notna(from_dt) and pd.notna(to_dt) and to_dt < from_dt:
+        flags = "TO_BEFORE_FROM"
+    return {
+        "cat": "ETR",
+        "kind": "MANUAL",
+        "loc": m.group("loc"),
+        "etr_from_type": from_type,
+        "etr_from_ts": from_dt,
+        "etr_to_type": to_type,
+        "etr_to_ts": to_dt,
+        "_flags": flags,   # bubble up to Flags
+    }
 
-def parse_etr(line: str):
-    """
-    Classify a line as SYSTEM ETR / MANUAL ETR / None and extract fields.
-    Returns a dict with: tag, loc, from_type, from_dt, to_type, to_dt, flags
-    """
-    s = (line or "").strip()
+rules: List[Rule] = [
+    Rule("SYSTEM ETR", 10, SYSTEM_DETECT, SYSTEM_EXTRACT, sys_handler),
+    Rule("MANUAL ETR", 20, MAN_DETECT, MAN_EXTRACT, man_handler),
+    # Add more below (Incident Status, Calls, Crew, GO Created/Updated, etc.)
+]
 
-    # SYSTEM ETR
-    if SYSTEM_ETR_TAG.search(s):
-        m = SYSTEM_ETR_EXTRACTOR.search(s)
-        if m:
-            to_type = m.group("to_type") or m.group("to_type_alt")
-            return {
-                "tag": "SYSTEM ETR",
-                "loc": m.group("loc"),
-                "from_type": None,
-                "from_dt": None,
-                "to_type": (to_type or "").upper() or "SYS",
-                "to_dt": m.group("to_dt"),
-                "flags": None,
-            }
-        else:
-            return {"tag": "SYSTEM ETR", "loc": None, "from_type": None, "from_dt": None,
-                    "to_type": None, "to_dt": None, "flags": "PARSE_FAIL"}
+# ---------- Tag a dataframe -> narrow schema ----------
+def tag_dataframe_narrow(df: pd.DataFrame, text_col: str = DESC_COL) -> pd.DataFrame:
+    out = df.copy()
+    results = out[text_col].astype(str).apply(lambda s: apply_rules(s, rules))
+    # results is a series of dicts with keys Tag/Flags/event_meta
+    out["Tag"] = results.map(lambda d: d["Tag"])
+    out["Flags"] = results.map(lambda d: d["Flags"])
+    out["event_meta"] = results.map(lambda d: d["event_meta"])
+    # (Optional) JSON mirror for Parquet/BI tools that dislike Python dicts:
+    out["event_meta_json"] = out["event_meta"].map(lambda d: json.dumps(d, default=str))
+    return out
 
-    # MANUAL ETR
-    if MANUAL_ETR_TAG.search(s):
-        m = MANUAL_ETR_EXTRACTOR.search(s)
-        if m:
-            to_type = m.group("to_type") or m.group("to_type_alt")
-            out = {
-                "tag": "MANUAL ETR",
-                "loc": m.group("loc"),
-                "from_type": (m.group("from_type") or "").upper(),
-                "from_dt": m.group("from_dt"),
-                "to_type": (to_type or "").upper() or "MAN",
-                "to_dt": m.group("to_dt"),
-                "flags": None,
-            }
-            # chronology sanity check
-            try:
-                fd = pd.to_datetime(out["from_dt"])
-                td = pd.to_datetime(out["to_dt"])
-                if pd.notna(fd) and pd.notna(td) and td < fd:
-                    out["flags"] = "TO_BEFORE_FROM"
-            except Exception:
-                out["flags"] = (out["flags"] + "|DT_PARSE_ERR") if out["flags"] else "DT_PARSE_ERR"
-            return out
-        else:
-            return {"tag": "MANUAL ETR", "loc": None, "from_type": None, "from_dt": None,
-                    "to_type": None, "to_dt": None, "flags": "PARSE_FAIL"}
+# ---------- Examples of working with the dict column ----------
+# Filter all ETR rows:
+# etr = df_tagged[df_tagged["Tag"].isin(["SYSTEM ETR", "MANUAL ETR"])]
 
-    # Not an ETR line we care about in this step
-    return {"tag": None, "loc": None, "from_type": None, "from_dt": None,
-            "to_type": None, "to_dt": None, "flags": None}
+# Pull values from event_meta on the fly:
+# etr["etr_ts"] = etr["event_meta"].map(lambda d: d.get("etr_to_ts"))
+# etr["loc"] = etr["event_meta"].map(lambda d: d.get("loc"))
 
-# --- APPLY TO YOUR DF ---
-
-# Ensure text
-df = df.copy()
-df[DESC_COL] = df[DESC_COL].astype(str)
-
-parsed = df[DESC_COL].apply(parse_etr).apply(pd.Series)
-
-# Normalize and coerce datetimes
-parsed["to_type"] = parsed["to_type"].str.upper().replace({"": np.nan})
-parsed["from_type"] = parsed["from_type"].str.upper().replace({"": np.nan})
-for c in ["from_dt", "to_dt"]:
-    parsed[c] = pd.to_datetime(parsed[c], errors="coerce")
-
-# Attach results
-df["ETR_tag"] = parsed["tag"]
-df["ETR_loc"] = parsed["loc"]
-df["ETR_from_type"] = parsed["from_type"]
-df["ETR_from_dt"] = parsed["from_dt"]
-df["ETR_to_type"] = parsed["to_type"]
-df["ETR_to_dt"] = parsed["to_dt"]
-df["ETR_flags"] = parsed["flags"]
-
-# Optional: filter to only the rows we tagged in this step
-etr_rows = df[df["ETR_tag"].notna()]
-
-# Quick sanity view
-print(etr_rows[[DESC_COL, "ETR_tag", "ETR_loc", "ETR_from_type", "ETR_from_dt", "ETR_to_type", "ETR_to_dt", "ETR_flags"]].head(20))
+# Later normalize a subset (wide form) if needed:
+# wide = pd.json_normalize(etr["event_meta"]).add_prefix("meta_")
+# etr_wide = pd.concat([etr.reset_index(drop=True), wide], axis=1)
