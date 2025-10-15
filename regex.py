@@ -1,3 +1,112 @@
+# -------- Cause / Occurrence recorded from CAD (global) --------
+import re
+from typing import Dict, Any
+
+CAD_CODE_DETECT = re.compile(
+    r'(?i)^\s*(?:New\s+(?:cause\s+code|occurrence)\s+recorded|Cause\s+code\s+removed)\b'
+)
+
+CAD_CODE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:
+        # New occurrence recorded [CODE][DESC] from CAD
+        New\s+occurrence\s+recorded
+        \s*\[\s*(?P<occ_code>[^\]]+)\s*\]
+        (?:\s*\[\s*(?P<occ_desc>[^\]]+)\s*\])?
+        (?:\s+from\s+(?P<src1>CAD))?
+      |
+        # New cause code recorded [CODE][DESC] from CAD
+        New\s+cause\s+code\s+recorded
+        \s*\[\s*(?P<cause_code>[^\]]+)\s*\]
+        (?:\s*\[\s*(?P<cause_desc>[^\]]+)\s*\])?
+        (?:\s+from\s+(?P<src2>CAD))?
+      |
+        # Cause code removed [CODE]
+        Cause\s+code\s+removed
+        \s*\[\s*(?P<cause_removed>[^\]]+)\s*\]
+    )
+    \s*$
+    '''
+)
+
+def cad_code_handler(m: re.Match) -> Dict[str, Any]:
+    if m.group("occ_code"):
+        return {
+            "cat": "CODE",
+            "kind": "OCCURRENCE_RECORDED",
+            "source": "CAD" if m.group("src1") else None,
+            "code": m.group("occ_code").strip(),   # e.g., STRCLR
+            "desc": (m.group("occ_desc") or "").strip() or None,  # e.g., CLEAR\STRUCTURE
+        }
+    if m.group("cause_code"):
+        return {
+            "cat": "CODE",
+            "kind": "CAUSE_RECORDED",
+            "source": "CAD" if m.group("src2") else None,
+            "code": m.group("cause_code").strip(), # e.g., OPESOPOPR
+            "desc": (m.group("cause_desc") or "").strip() or None, # e.g., SOP\OPERATOR/CREW\OPEN FOR REPAIRS
+        }
+    # removed
+    return {
+        "cat": "CODE",
+        "kind": "CAUSE_REMOVED",
+        "code": m.group("cause_removed").strip(),
+    }
+
+# Priority: put near other signal/call-level events (e.g., 60–70)
+rules.append(
+    Rule("CAD Code Recorded/Removed", 66, CAD_CODE_DETECT, CAD_CODE_EXTRACT, cad_code_handler)
+)
+
+
+
+
+# -------- Location-level Cause / Occurrence set/removed --------
+LOC_CODE_DETECT = re.compile(
+    r'(?i)^\s*His\s+Location\s*\[\s*\d+\s*\]\s*(?:Cause|Occurn)\s+has\s+been\s+(?:set\s+to|removed)\b'
+)
+
+LOC_CODE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*His\s+Location
+    \s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    (?P<which>Cause|Occurn)\s+has\s+been\s+
+    (?:
+        set\s+to\s*\[\s*(?P<val>.*?)\s*\]     # capture whole value; may contain slashes/semicolons
+      | removed
+    )
+    \s*$
+    '''
+)
+
+def loc_code_handler(m: re.Match) -> Dict[str, Any]:
+    which = m.group("which").upper()          # CAUSE or OCCURN
+    val   = m.group("val")
+    if val is not None:
+        return {
+            "cat": "LOCATION_CODE",
+            "kind": f"{which}_SET",           # CAUSE_SET / OCCURN_SET
+            "location_id": int(m.group("loc_id")),
+            "value": val.strip(),             # keep entire text, e.g., "CLEAR\STRUCTURE;"
+        }
+    else:
+        return {
+            "cat": "LOCATION_CODE",
+            "kind": f"{which}_REMOVED",       # CAUSE_REMOVED / OCCURN_REMOVED
+            "location_id": int(m.group("loc_id")),
+        }
+
+# Priority: these are field changes; put high (e.g., 76), just below Energized Date (75)
+rules.append(
+    Rule("Location Code Set/Removed", 76, LOC_CODE_DETECT, LOC_CODE_EXTRACT, loc_code_handler)
+)
+
+
+
+
+
+
 # --- Incident Details Accessed ---
 import re
 from typing import Dict, Any
