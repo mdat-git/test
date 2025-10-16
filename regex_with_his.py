@@ -1,66 +1,75 @@
 ## updated Combiner
+# --- Record Combine Operation (incidents/locations; live or HIS) ---
 import re
 from typing import Dict, Any, List
-from ..engine import Rule  # adjust import
 
-# --- Detect any of: Incident(s)/Location(s) ... has been combined ---
-HIST_ROUTE_DETECT = re.compile(
+COMBINED_DETECT = re.compile(
     r'(?i)^\s*(?:His\s+incident|Incidents?|Locations?)\b.*\bhas\s+been\s+combined\b'
 )
 
-HIST_ROUTE_EXTRACT = re.compile(
-    r'''(?ix)
+COMBINED_EXTRACT = re.compile(
+    r'''(?isx)  # s=dotall to be newline-tolerant; x=verbose
     ^\s*
     (?:
-        # (A) Incidents [id, id, ...] has been combined into Incident <target>
-        Incidents?\s*\[\s*(?P<inc_srcs>[^\]]+)\s*\]\s*has\s*been\s*combined\s*into\s*Incident\s*(?P<inc_tgt>\d+)
+        # (A) Incident(s) [id, id, ...] has been combined (into|to) Incident <target>
+        Incidents?\s*\[\s*(?P<inc_srcs>[^\]]+)\s*\]\s*has\s*been\s*combined\s*(?:into|to)\s*Incident\s*(?P<inc_tgt>\d+)\.?
       |
-        # (B) Locations [id, id, ...] has been combined into Location <target>
-        Locations?\s*\[\s*(?P<loc_srcs>[^\]]+)\s*\]\s*has\s*been\s*combined\s*into\s*Location\s*(?P<loc_tgt>\d+)
+        # (B) Location(s) [id, id, ...] has been combined (into|to) Location <target>
+        Locations?\s*\[\s*(?P<loc_srcs>[^\]]+)\s*\]\s*has\s*been\s*combined\s*(?:into|to)\s*Location\s*(?P<loc_tgt>\d+)\.?
       |
-        # (C) His incident - has been combined in history to incident <target>
-        His\s+incident\s*-\s*has\s*been\s*combined\s*in\s*history\s*to\s*incident\s*(?P<his_inc_tgt>\d+)
+        # (C) His incident [optional src] - has been combined (in history)? (into|to) incident <target>
+        His\s+incident
+        (?:\s*\[\s*(?P<his_src>\d+)\s*\])?
+        (?:\s*[-–]\s*)?
+        has\s*been\s*combined
+        (?:\s*in\s*history)?
+        \s*(?:into|to)\s*incident\s*(?P<his_tgt>\d+)\.?
     )
     \s*$
     '''
 )
 
 def _parse_id_list(blob: str) -> List[int]:
-    # accept "123, 456 789" etc.
+    # Accept "131514840, 131514847" or "131514840 131514847" etc.
     return [int(x) for x in re.findall(r'\d+', blob or '')]
 
-def hist_route_handler(m: re.Match) -> Dict[str, Any]:
+def combined_handler(m: re.Match) -> Dict[str, Any]:
+    # Incidents with list
     if m.group("inc_srcs") is not None:
         srcs = _parse_id_list(m.group("inc_srcs"))
-        tgt = int(m.group("inc_tgt"))
         return {
-            "cat": "HISTORY",
+            "cat": "HISTORY",  # semantic family; layer will tell HIS vs LIVE
             "kind": "INCIDENTS_COMBINED",
+            "combined_type": "INCIDENT",
             "sources": srcs,
             "source_count": len(srcs),
-            "target_incident_id": tgt,
+            "target_incident_id": int(m.group("inc_tgt")),
         }
+    # Locations with list
     if m.group("loc_srcs") is not None:
         srcs = _parse_id_list(m.group("loc_srcs"))
-        tgt = int(m.group("loc_tgt"))
         return {
             "cat": "HISTORY",
             "kind": "LOCATIONS_COMBINED",
+            "combined_type": "LOCATION",
             "sources": srcs,
             "source_count": len(srcs),
-            "target_location_id": tgt,
+            "target_location_id": int(m.group("loc_tgt")),
         }
-    # "His incident - has been combined in history to incident <target>"
-    return {
+    # His incident with optional single source or no source
+    his_src = m.group("his_src")
+    meta = {
         "cat": "HISTORY",
         "kind": "INCIDENT_COMBINED",
-        "sources": None,               # not listed in this form
-        "source_count": None,
-        "target_incident_id": int(m.group("his_inc_tgt")),
+        "combined_type": "INCIDENT",
+        "sources": ([int(his_src)] if his_src else None),
+        "source_count": (1 if his_src else None),
+        "target_incident_id": int(m.group("his_tgt")),
     }
+    return meta
 
-# keep priority very early
-RULE_HISTORY_COMBINE = Rule("History Routing (HIS)", 12, HIST_ROUTE_DETECT, HIST_ROUTE_EXTRACT, hist_route_handler)
+# Register it early so it wins over other lines
+RULE_COMBINED = Rule("Record Combine Operation", 12, COMBINED_DETECT, COMBINED_EXTRACT, combined_handler)
 
 
 
