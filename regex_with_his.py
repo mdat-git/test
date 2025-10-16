@@ -1,3 +1,35 @@
+# --- Incident Routing (Routine / Non-Routine) ---
+import re
+from typing import Dict, Any
+
+ROUTING_DETECT = re.compile(
+    r'(?i)^\s*(?:History\s+)?Incident\b.*\b(?:changed\s+to|moved\s+to)\b'
+)
+
+ROUTING_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*
+    (?:History\s+)?Incident
+    (?:\s*\[\s*(?P<inc>\d+)\s*\])?            # optional incident id
+    \s+is\s+(?:changed\s+to|moved\s+to)\s+
+    (?P<state>Non[-\s]?Routine|Routine)\.?
+    \s*$
+    '''
+)
+
+def routing_handler(m: re.Match) -> Dict[str, Any]:
+    st = re.sub(r'\s+', ' ', m.group('state').strip()).upper().replace('-', '_')
+    return {
+        "cat": "HISTORY",
+        "kind": "INCIDENT_STATE",
+        "incident_id": int(m.group('inc')) if m.group('inc') else None,
+        "state": st,                           # "ROUTINE" | "NON_ROUTINE"
+    }
+
+RULE_ROUTING = Rule("Incident Routing (Routine/Non-Routine)", 13, ROUTING_DETECT, ROUTING_EXTRACT, routing_handler)
+
+
+
 ## updated Combiner
 # --- Record Combine Operation (incidents/locations; live or HIS) ---
 import re
