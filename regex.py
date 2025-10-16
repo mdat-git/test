@@ -1,10 +1,26 @@
-# Extractor for Crew remark (handles nested brackets, optional "from CAD")
+
+
+# 1) Make sure this priority is LOWER (runs earlier) than Crew Status
+#    e.g., Crew Remark = 40; Crew Status = 50
+
+import re
+
+# Detect both wordings
+CREW_REMARK_DETECT = re.compile(
+    r'(?i)^\s*Crew\s*\[\s*[^\]]+\s*\]\s*(?:new\s+remark\s+recorded|remark\s+changed)\b'
+)
+
+# Extract EVERYTHING inside the LAST [...] before the optional "from CAD/ADMS/..." tail.
+# Notes:
+#   - (?s) DOTALL: allow any characters, even newlines, inside the remark
+#   - Greedy '.*' ensures we stop at the LAST ']' on the line, so inner [...] are fine
+#   - Tail "from <SRC>" is optional and case-insensitive; trailing spaces are OK
 CREW_REMARK_EXTRACT = re.compile(
-    r'''(?ix)
+    r'''(?isx)
     ^\s*Crew\s*\[\s*(?P<crew>[^\]]+)\s*\]\s*
     (?:new\s+remark\s+recorded|remark\s+changed)
-    \s*\[\s*(?P<remark>.*?)(?=\]\s*(?:\s+from\s+[A-Z]+)?\s*$)\]\s*
-    (?:\s+from\s+(?P<src>[A-Z]+))?
+    \s*\[\s*(?P<remark>.*)\]\s*
+    (?:from\s+(?P<src>[A-Za-z]+))?      # CAD / ADMS / etc (optional)
     \s*$
     '''
 )
@@ -14,8 +30,8 @@ def crew_remark_handler(m):
         "cat": "CREW",
         "kind": "REMARK",
         "crew_ref": m.group("crew").strip(),
-        "remark": m.group("remark").strip(),             # entire bracket payload
-        "source": (m.group("src") or "").upper() or None # CAD/ADMS/etc, if present
+        "remark": m.group("remark").strip(),            # full payload, inner [] preserved
+        "source": (m.group("src") or "").upper() or None
     }
 
 
