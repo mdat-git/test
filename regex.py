@@ -1,3 +1,64 @@
+# Detect: Crew[...] (new remark recorded | remark changed) ...
+CREW_REMARK_DETECT = re.compile(
+    r'(?i)^\s*Crew\s*\[\s*[^\]]+\s*\]\s*(?:new\s+remark\s+recorded|remark\s+changed)\b'
+)
+
+# Extract:
+#  - bracketed remark can contain internal [ ... ] ; we capture up to the FINAL ']' before (from CAD)? end
+CREW_REMARK_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Crew\s*\[\s*(?P<crew>[^\]]+)\s*\]\s*
+    (?:new\s+remark\s+recorded|remark\s+changed)
+    (?:
+        \s*\[\s*(?P<remark_bracket>.*?)(?=\]\s*(?:\s+from\s+[A-Z]+)?\s*$)\]\s*   # bracketed, allow inner [...]
+      | \s+(?P<remark_free>.+?)                                                 # or free text
+    )
+    (?:\s+from\s+(?P<src>[A-Z]+))?
+    \s*$
+    '''
+)
+
+
+# Detect unchanged
+LOC_CREW_REMARK_DETECT = re.compile(r'(?i)^\s*Location\s*\[\s*\d+\s*\]\s*Crew\s*:')
+
+# Extract with look-ahead for the set-to value
+LOC_CREW_REMARK_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Location\s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    Crew\s*:\s*\[\s*(?P<crew_ref>[^\]]+)\s*\]\s*
+    Remark\s+is\s+
+    (?:
+        set\s+to\s*\[\s*(?P<remark>.*?)(?=\]\s*$)\]\s*   # remark may contain inner [...]
+      | null
+    )
+    \s*$
+    '''
+)
+def crew_remark_handler(m):
+    remark = (m.group("remark_bracket") or m.group("remark_free") or "").strip()
+    return {
+        "cat": "CREW",
+        "kind": "REMARK",
+        "crew_ref": (m.group("crew") or "").strip(),
+        "remark": remark,
+        "source": (m.group("src") or "").upper() or None,
+    }
+
+def loc_crew_remark_handler(m):
+    return {
+        "cat": "CREW",
+        "kind": "REMARK_SET" if m.group("remark") is not None else "REMARK_NULL",
+        "scope": "LOCATION",
+        "location_id": int(m.group("loc_id")),
+        "crew_ref": m.group("crew_ref").strip(),
+        "remark": (m.group("remark") or "").strip() or None
+    }
+rules.append(
+    Rule("Location Crew Remark", 44, LOC_CREW_REMARK_DETECT, LOC_CREW_REMARK_EXTRACT, loc_crew_remark_handler)
+)
+
+
 # -------- Location Date Field (Energized / Initial / Estimated Restore) --------
 import re
 import pandas as pd
