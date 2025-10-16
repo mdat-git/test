@@ -1,3 +1,25 @@
+# Extractor for Crew remark (handles nested brackets, optional "from CAD")
+CREW_REMARK_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Crew\s*\[\s*(?P<crew>[^\]]+)\s*\]\s*
+    (?:new\s+remark\s+recorded|remark\s+changed)
+    \s*\[\s*(?P<remark>.*?)(?=\]\s*(?:\s+from\s+[A-Z]+)?\s*$)\]\s*
+    (?:\s+from\s+(?P<src>[A-Z]+))?
+    \s*$
+    '''
+)
+
+def crew_remark_handler(m):
+    return {
+        "cat": "CREW",
+        "kind": "REMARK",
+        "crew_ref": m.group("crew").strip(),
+        "remark": m.group("remark").strip(),             # entire bracket payload
+        "source": (m.group("src") or "").upper() or None # CAD/ADMS/etc, if present
+    }
+
+
+
 # -------- Incident Crew Remark applied to all locations --------
 INC_CREW_REMARK_ALL_DETECT = re.compile(
     r'(?i)^\s*Incident\s*\[\s*\d+\s*\]\s*Crew\s+Remark\b'
