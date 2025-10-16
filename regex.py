@@ -1,3 +1,33 @@
+# -------- Incident Crew Remark applied to all locations --------
+INC_CREW_REMARK_ALL_DETECT = re.compile(
+    r'(?i)^\s*Incident\s*\[\s*\d+\s*\]\s*Crew\s+Remark\b'
+)
+
+INC_CREW_REMARK_ALL_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Incident\s*\[\s*(?P<incident_id>\d+)\s*\]\s*
+    Crew\s+Remark\s*
+    \[\s*(?P<remark>.*?)\s*\]\s*
+    has\s+been\s+appl(?:y|ied)\s+to\s+all\s+locations
+    \s*$
+    '''
+)
+
+def inc_crew_remark_all_handler(m):
+    return {
+        "cat": "CREW",
+        "kind": "REMARK_APPLIED_ALL_LOCATIONS",
+        "scope": "ALL_LOCATIONS",
+        "incident_id": int(m.group("incident_id")),
+        "remark": (m.group("remark") or "").strip() or None
+    }
+
+rules.append(
+    Rule("Incident Crew Remark (All Locations)", 43, INC_CREW_REMARK_ALL_DETECT, INC_CREW_REMARK_ALL_EXTRACT, inc_crew_remark_all_handler)
+)
+
+
+
 # Detect: Crew[...] (new remark recorded | remark changed) ...
 CREW_REMARK_DETECT = re.compile(
     r'(?i)^\s*Crew\s*\[\s*[^\]]+\s*\]\s*(?:new\s+remark\s+recorded|remark\s+changed)\b'
