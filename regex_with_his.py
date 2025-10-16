@@ -1,3 +1,137 @@
+### UPDATE TO LOCATION LEVEL CAUSE OCCUR 
+# -------- Location-level Cause / Occurrence set/removed --------
+import re
+from typing import Dict, Any
+from ..engine import Rule  # adjust import
+
+# DETECT: optional "His", optional variants of Occurrence
+LOC_CODE_DETECT = re.compile(
+    r'(?i)^\s*(?:His\s+)?Location\s*\[\s*\d+\s*\]\s*(?:Cause|Occur\w+)\s+has\s+been\s+(?:set\s+to|removed)\b'
+)
+
+# EXTRACT: allow nested brackets in value; dotall for multiline; strict end anchors
+LOC_CODE_EXTRACT = re.compile(
+    r'''(?isx)
+    ^\s*(?:His\s+)?Location
+    \s*\[\s*(?P<loc_id>\d+)\s*\]\s*
+    (?P<which>Cause|Occur\w+)\s+has\s+been\s+
+    (?:
+        set\s+to\s*\[\s*(?P<val>.*?)(?=\]\s*$)\]\s*   # value may contain inner [...]
+      | removed
+    )
+    \s*$
+    '''
+)
+
+def _canon_which(s: str) -> str:
+    up = s.strip().upper()
+    # normalize any Occur... to OCCURN to match your earlier schema
+    return "OCCURN" if up.startswith("OCCUR") else "CAUSE"
+
+def loc_code_handler(m: re.Match) -> Dict[str, Any]:
+    which = _canon_which(m.group("which"))
+    if m.group("val") is not None:
+        return {
+            "cat": "LOCATION_CODE",
+            "kind": f"{which}_SET",                 # CAUSE_SET / OCCURN_SET
+            "location_id": int(m.group("loc_id")),
+            "value": m.group("val").strip() or None
+        }
+    return {
+        "cat": "LOCATION_CODE",
+        "kind": f"{which}_REMOVED",                # CAUSE_REMOVED / OCCURN_REMOVED
+        "location_id": int(m.group("loc_id")),
+    }
+
+# Keep high priority (before generic status lines)
+RULES.append(
+    Rule("Location Cause/Occur Set (HIS)", 16, LOC_CODE_DETECT, LOC_CODE_EXTRACT, loc_code_handler)
+)
+
+
+
+### LOCATION CREATION DATETIME
+# -------- Location Creation Datetime (HIS) --------
+import re
+import pandas as pd
+from typing import Dict, Any
+# from ..engine import Rule  # adjust import
+
+LOC_CREATE_DT_DETECT = re.compile(
+    r'(?i)^\s*Creation\s+(?:Date\s*[-\s]?Time|Datetime)\s+of\s+Location\s*\[\s*\d+\s*\]\s*has\s+been\s+changed\s+to\b'
+)
+
+# Example: Creation Datetime of Location [2045215975] has been changed to [10/10/2024 00:00:30]
+LOC_CREATE_DT_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*Creation\s+(?:Date\s*[-\s]?Time|Datetime)\s+of\s+Location
+    \s*\[\s*(?P<loc_id>\d+)\s*\]\s*has\s+been\s+changed\s+to
+    \s*\[\s*(?P<new_val>.*?)\s*\]\s*$
+    '''
+)
+
+def _coerce_dt_maybe(s: str | None):
+    if not s: return None
+    s = s.strip()
+    if not s: return None
+    return pd.to_datetime(s, errors="coerce")
+
+def loc_creation_dt_handler(m: re.Match) -> Dict[str, Any]:
+    return {
+        "cat": "LOCATION_DATE",
+        "action": "CHANGED",          # phrase says "changed to"
+        "field": "CREATION",          # consistent with ENERGIZED/INITIAL/ESTIMATED_RESTORE
+        "location_id": int(m.group("loc_id")),
+        "old_ts": None,               # not provided in this log line
+        "new_ts": _coerce_dt_maybe(m.group("new_val")),
+    }
+
+# Register early among HIS rules (just before other location date edits if you like)
+rules.append(
+    Rule("Location Creation Datetime (HIS)", 14, LOC_CREATE_DT_DETECT, LOC_CREATE_DT_EXTRACT, loc_creation_dt_handler)
+)
+
+
+### INCIDENT DEVICE INITIAL DATE SET 
+# -------- Device Date Set (HIS/LIVE) --------
+import re
+import pandas as pd
+from typing import Dict, Any
+
+DEV_DATE_SET_DETECT = re.compile(
+    r'(?i)^\s*(?:His\s+)?IncidentDevice\s*\[\s*\d+\s*\]\s*Initial\s+Date\s*[-\s]?Time\s+has\s+been\s+set\s+to\b'
+)
+
+DEV_DATE_SET_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*(?:His\s+)?IncidentDevice
+    \s*\[\s*(?P<dev>\d+)\s*\]\s*
+    Initial\s+Date\s*[-\s]?Time\s+has\s+been\s+set\s+to
+    \s*\[\s*(?P<new>.*?)\s*\]\s*$
+    '''
+)
+
+def _coerce_dt_maybe(s: str | None):
+    if not s: return None
+    s = s.strip()
+    if not s: return None
+    return pd.to_datetime(s, errors="coerce")
+
+def dev_date_set_handler(m: re.Match) -> Dict[str, Any]:
+    return {
+        "cat": "DEVICE_DATE",
+        "kind": "SET",
+        "field": "INITIAL",
+        "device_id": int(m.group("dev")),
+        "new_ts": _coerce_dt_maybe(m.group("new")),
+    }
+
+
+
+
+
+
+
 ### Manual ETR disable recalc
 # Detect only the disable-recalc flavor
 MAN_DISABLE_DETECT = re.compile(
