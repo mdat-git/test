@@ -1,3 +1,64 @@
+### Manual ETR disable recalc
+# Detect only the disable-recalc flavor
+MAN_DISABLE_DETECT = re.compile(
+    r'(?i)^\s*MANUAL\s+ETR-\s*Disable\s+ETR\s+Re-?calculation\b'
+)
+
+# Example: "MANUAL ETR- Disable ETR Re-calculation for @ HEMLOCK ST.N/S 231' E/O PECK RD"
+MAN_DISABLE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*MANUAL\s+ETR-\s*
+    Disable\s+ETR\s+Re-?calculation
+    \s+for\s+@\s*(?P<loc>.+?)\s*$
+    '''
+)
+
+def man_disable_handler(m):
+    return {
+        "cat": "ETR",
+        "kind": "MANUAL",
+        "action": "DISABLE_RECALC",
+        "loc": m.group("loc").strip(),
+    }
+
+
+### manual etr remove etr optiona ETR SYS | MAN 
+# Detect only the remove flavor
+MAN_REMOVE_DETECT = re.compile(
+    r'(?i)^\s*MANUAL\s+ETR-\s*Remove\s+ETR\b'
+)
+
+# Examples covered:
+#   MANUAL ETR- Remove ETR for @ OAKWOOD AV. ... ETR MAN-01/11/2025 18:00:00
+#   MANUAL ETR- Remove ETR for @ BROADWAY AV ... ETR SYS-01/08/2025 07:00:00
+#   MANUAL ETR- Remove ETR for @ 3167 WILSON AVE.
+DT = r'\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}'   # use your shared DT if you already have one
+MAN_REMOVE_EXTRACT = re.compile(
+    rf'''(?ix)
+    ^\s*MANUAL\s+ETR-\s*
+    Remove\s+ETR\s+for\s+@\s*(?P<loc>.+?)\s*
+    (?:                                   # optional trailing reference ETR
+        ETR\s+
+        (?:(?P<ref_type>SYS|MAN)\s*[:\-]?\s*)?
+        (?P<ref_dt>{DT})
+    )?
+    \s*$
+    '''
+)
+
+def man_remove_handler(m):
+    return {
+        "cat": "ETR",
+        "kind": "MANUAL",
+        "action": "REMOVE",
+        "loc": m.group("loc").strip(),
+        # Sometimes the tail is present: "ETR SYS-01/09/2025 03:30:00"
+        "etr_ref_type": (m.group("ref_type") or "").upper() or None,
+        "etr_ref_ts": coerce_dt(m.group("ref_dt")) if m.group("ref_dt") else None,
+    }
+
+
+
 # --- Incident Cause set/removed (HIS) ---
 INC_CAUSE_DETECT = re.compile(
     r'(?i)^\s*His\s+Incident\s*\[\s*\d+\s*\]\s*Cause\s+has\s+been\s+(?:set\s+to|removed)\b'
