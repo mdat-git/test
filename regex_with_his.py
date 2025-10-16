@@ -1,3 +1,38 @@
+# --- Incident Cause set/removed (HIS) ---
+INC_CAUSE_DETECT = re.compile(
+    r'(?i)^\s*His\s+Incident\s*\[\s*\d+\s*\]\s*Cause\s+has\s+been\s+(?:set\s+to|removed)\b'
+)
+
+INC_CAUSE_EXTRACT = re.compile(
+    r'''(?ix)
+    ^\s*His\s+Incident\s*\[\s*(?P<inc>\d+)\s*\]\s*
+    Cause\s+has\s+been\s+
+    (?:
+        set\s+to\s*\[\s*(?P<val>.*?)\s*\]     # keep full bracket text
+      | removed
+    )
+    \s*$
+    '''
+)
+
+def inc_cause_handler(m: re.Match) -> Dict[str, Any]:
+    if m.group("val") is not None:
+        return {
+            "cat": "INCIDENT_CODE",
+            "kind": "CAUSE_SET",
+            "incident_id": int(m.group("inc")),
+            "value": m.group("val").strip(),
+        }
+    else:
+        return {
+            "cat": "INCIDENT_CODE",
+            "kind": "CAUSE_REMOVED",
+            "incident_id": int(m.group("inc")),
+        }
+
+RULE_INC_CAUSE = Rule("Incident Cause Set/Removed (HIS)", 16, INC_CAUSE_DETECT, INC_CAUSE_EXTRACT, inc_cause_handler)
+
+
 # --- Incident Routing (Routine / Non-Routine) ---
 import re
 from typing import Dict, Any
