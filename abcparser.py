@@ -1,3 +1,57 @@
+## DROP IN REPLACEMENT FOR FIX
+# g is already sorted and reset_index(drop=True)
+mgr_mask = g[cfg.user_col].str.upper().eq(cfg._mgr_upper)
+mgr_idx = np.flatnonzero(mgr_mask.values)
+
+first_mgr_idx = int(mgr_idx.min()) if mgr_idx.size > 0 else None
+last_mgr_idx  = int(mgr_idx.max()) if mgr_idx.size > 0 else None
+c_start_idx   = (last_mgr_idx + 1) if mgr_idx.size > 0 else None  # C begins AFTER the manager block
+
+# Completed (for guard/latency)
+t_completed = g.loc[g["_is_completed"], cfg.time_col].min() if g["_is_completed"].any() else pd.NaT
+
+# ---- FIXED: choose B_user = last NON-MANAGER user BEFORE the FIRST manager row ----
+b_user = None
+b_run_start_idx = None
+if first_mgr_idx is not None:
+    k = first_mgr_idx - 1
+    # walk back to the nearest user that is not null AND not the manager
+    while k >= 0:
+        u = g.loc[k, cfg.user_col]
+        if pd.notna(u) and (str(u).upper() != cfg._mgr_upper):
+            b_user = u
+            break
+        k -= 1
+
+    if b_user is not None:
+        # walk backward to the start of this user's contiguous run
+        i = k
+        while i - 1 >= 0 and g.loc[i - 1, cfg.user_col] == b_user:
+            i -= 1
+        b_run_start_idx = i
+
+# If no manager block, we can fallback to "first row after Completed" as B_start
+b_start_idx = None
+t_b = pd.NaT
+if b_run_start_idx is not None:
+    t_b = g.loc[b_run_start_idx, cfg.time_col]
+    if pd.notna(t_completed):
+        t_b = max(t_b, t_completed)             # never start B before Completed
+    b_start_idx = int(np.flatnonzero((g[cfg.time_col] >= t_b).values)[0])
+elif (first_mgr_idx is None) and pd.notna(t_completed):
+    # no manager block: B starts at first row AFTER Completed
+    idx_after_completed = np.flatnonzero((g[cfg.time_col] > t_completed).values)
+    if idx_after_completed.size > 0:
+        b_start_idx = int(idx_after_completed[0])
+        t_b = g.loc[b_start_idx, cfg.time_col]
+        # reviewer = first non-null user at/after b_start_idx
+        uu = g.loc[b_start_idx:, cfg.user_col].dropna()
+        b_user = None if uu.empty else uu.iloc[0]
+
+
+## END 
+
+
 # =========================
 # Phase splitter (A/B/C)
 # =========================
@@ -50,6 +104,7 @@ def _segment_single_incident(g: pd.DataFrame, cfg: PhaseConfig) -> Tuple[pd.Data
     # Sort deterministically and reset to RangeIndex (index-based cuts survive equal timestamps)
     g = g.sort_values([cfg.time_col, cfg.insert_col], kind="stable").reset_index(drop=True)
 
+    
     # --- locate archival block (all CGI_HISMGR rows) ---
     mgr_mask = g[cfg.user_col].str.upper().eq(cfg._mgr_upper)
     mgr_idx = np.flatnonzero(mgr_mask.values)
