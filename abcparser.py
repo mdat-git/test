@@ -1,3 +1,42 @@
+#patch for B
+# --- B starts: NEVER before A-tail end (NEW guard) ---
+if b_run_start_idx is not None:
+    t_b_candidate = ts.iloc[b_run_start_idx]
+    if pd.notna(a_tail_end):
+        t_b_candidate = max(t_b_candidate, a_tail_end)
+
+    i = _first_index_at_or_after(ts, t_b_candidate, upper_cap=first_mgr_idx)
+    if i >= len(g): 
+        i = first_mgr_idx
+    elif i > first_mgr_idx:
+        i = first_mgr_idx
+
+    b_start_idx = i
+    if b_start_idx >= len(g):
+        b_start_idx = max(0, first_mgr_idx)
+
+    t_b_start = ts.iloc[b_start_idx]
+
+else:
+    # fallback: start at archive day while respecting A-tail
+    t_b_candidate = t_archive_first
+    if pd.notna(a_tail_end):
+        t_b_candidate = max(t_b_candidate, a_tail_end)
+
+    i = _first_index_at_or_after(ts, t_b_candidate, upper_cap=first_mgr_idx)
+    if i >= len(g): 
+        i = first_mgr_idx
+    elif i > first_mgr_idx:
+        i = first_mgr_idx
+
+    b_start_idx = i
+    if b_start_idx >= len(g):
+        b_start_idx = max(0, first_mgr_idx)
+
+    t_b_start = ts.iloc[b_start_idx]
+
+
+
 ## updat for A block + 2 mins, B block max lookback
 
 # ---- PhaseConfig: add knobs for A-tail + B lookback ----
