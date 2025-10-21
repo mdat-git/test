@@ -1,3 +1,184 @@
+#final _segment_single_incident()
+def _first_index_at_or_after(ts: pd.Series, threshold) -> int:
+    """
+    ts: sorted datetime Series
+    threshold: Timestamp-like (or NaT)
+    Returns first integer position i such that ts[i] >= threshold.
+    If threshold is NaT -> 0. If threshold after all rows -> len(ts).
+    """
+    if pd.isna(threshold):
+        return 0
+    th = pd.Timestamp(threshold)
+    return int(pd.Index(ts.values).searchsorted(th, side="left"))
+
+
+def _segment_single_incident(g: pd.DataFrame, cfg: PhaseConfig) -> Tuple[pd.DataFrame, Dict]:
+    # Sort deterministically and use RangeIndex so index-based cuts work with equal timestamps
+    g = g.sort_values([cfg.time_col, cfg.insert_col], kind="stable").reset_index(drop=True)
+    user = g[cfg.user_col].astype(str)
+    ts   = g[cfg.time_col]
+
+    # --- Locate archival block (all CGI_HISMGR rows) ---
+    mgr_mask = user.str.upper().eq(cfg._mgr_upper)
+    mgr_idx = np.flatnonzero(mgr_mask.values)
+
+    if mgr_idx.size == 0:
+        # No archive -> per policy: everything is A
+        g["_phase"] = "A_LiveDispatch"
+        return g, dict(
+            incident_id=g.iloc[0][cfg.incident_col],
+            has_archival_block=False,
+            doc_reviewer=None,
+            b_start_idx=None, b_end_idx=None,
+            t_completed=pd.NaT, a_tail_end=pd.NaT,
+            t_archive_first=pd.NaT, t_archive_last=pd.NaT,
+            t_b_start=pd.NaT, t_b_end=pd.NaT,
+            t_c1_start=pd.NaT, t_c2_start=pd.NaT,
+            dur_doc_qc_min=np.nan, dur_c1_min=np.nan, dur_c2_min=np.nan,
+            n_events_total=int(len(g)), n_live=int(len(g)),
+            n_doc_qc=0, n_c1=0, n_c2=0
+        )
+
+    first_mgr_idx = int(mgr_idx.min())
+    last_mgr_idx  = int(mgr_idx.max())
+    t_archive_first = ts.iloc[first_mgr_idx]
+    t_archive_last  = ts.iloc[last_mgr_idx]
+
+    # --- Completed anchor + A-tail buffer (A has priority up to Completed+tail) ---
+    t_completed = ts.loc[g["_is_completed"]].min() if g["_is_completed"].any() else pd.NaT
+    a_tail_end = (t_completed + np.timedelta64(cfg.a_tail_minutes, "m")) if pd.notna(t_completed) else pd.NaT
+
+    # --- DOC reviewer (B_user): last NON-manager user BEFORE FIRST manager row (skip ignorable) ---
+    b_user = None
+    k = first_mgr_idx - 1
+    while k >= 0:
+        u_up = (user.iloc[k] or "").upper()
+        if (u_up != "") and (u_up != cfg._mgr_upper) and (u_up not in cfg._ign_upper):
+            b_user = user.iloc[k]
+            break
+        k -= 1
+
+    # --- Walk backward to the start of that user's run, allowing ignorable interruptions,
+    #     but enforce time bounds so we don't pull month-old rows into B ---
+    b_run_start_idx = None
+    if b_user is not None:
+        lower_time_bound = t_archive_first - np.timedelta64(cfg.b_lookback_hours, "h")
+        if pd.notna(a_tail_end):
+            lower_time_bound = max(lower_time_bound, a_tail_end)
+        if cfg.enforce_same_day_for_b:
+            lower_time_bound = max(lower_time_bound, pd.Timestamp(t_archive_first.normalize()))  # midnight
+
+        i = k
+        while i - 1 >= 0:
+            u_prev_up = (user.iloc[i-1] or "").upper()
+            t_prev    = ts.iloc[i-1]
+            # stop if earlier than allowed window
+            if pd.notna(lower_time_bound) and pd.notna(t_prev) and (t_prev < lower_time_bound):
+                break
+            # otherwise allow contiguous same-user OR ignorable users
+            if (u_prev_up == b_user.upper()) or (u_prev_up in cfg._ign_upper):
+                i -= 1
+            else:
+                break
+
+        # ensure run starts on a real b_user row (skip leading ignorables)
+        j = i
+        while j <= k and (user.iloc[j] or "").upper() in cfg._ign_upper:
+            j += 1
+        b_run_start_idx = j if (j <= k and (user.iloc[j] or "").upper() == b_user.upper()) else k
+
+    # --- B start: never before A-tail; and never after first_mgr_idx (clamped) ---
+    if b_run_start_idx is not None:
+        t_b_candidate = ts.iloc[b_run_start_idx]
+        if pd.notna(a_tail_end):
+            t_b_candidate = max(t_b_candidate, a_tail_end)
+    else:
+        # fallback: around archive while respecting A-tail
+        t_b_candidate = t_archive_first
+        if pd.notna(a_tail_end):
+            t_b_candidate = max(t_b_candidate, a_tail_end)
+
+    i = _first_index_at_or_after(ts, t_b_candidate)
+    if i >= len(g):
+        i = first_mgr_idx
+    elif i > first_mgr_idx:
+        i = first_mgr_idx
+
+    b_start_idx = i
+    if b_start_idx >= len(g):
+        b_start_idx = max(0, first_mgr_idx)
+    t_b_start = ts.iloc[b_start_idx]
+
+    # --- B initially ends right AFTER the archival block; extend by grace if same DOC reviewer edits soon after ---
+    b_end_idx = last_mgr_idx + 1  # exclusive
+    grace = np.timedelta64(cfg.post_archive_grace_min, "m")
+    cursor = b_end_idx
+    while cursor < len(g):
+        u_cur = (g.loc[cursor, cfg.user_col] or "")
+        same_user = (u_cur.upper() == (b_user or "").upper())
+        within_grace = (ts.loc[cursor] <= (t_archive_last + grace))
+        if same_user and within_grace:
+            cursor += 1
+            b_end_idx = cursor
+        else:
+            break
+
+    # --- Phase labeling (A-lock & A-tail applied first) ---
+    phase = pd.Series("A_LiveDispatch", index=g.index, dtype=object)
+
+    if pd.notna(t_completed):
+        phase.loc[ts < t_completed] = "A_LiveDispatch"
+        if pd.notna(a_tail_end):
+            phase.loc[(ts >= t_completed) & (ts <= a_tail_end)] = "A_LiveDispatch"
+
+    # B range
+    phase.iloc[b_start_idx:b_end_idx] = "B_DOC_QC"
+
+    # After B: RA → C2, else C1
+    if b_end_idx < len(g):
+        post = g.iloc[b_end_idx:]
+        is_ra = post[cfg.user_col].str.upper().isin(cfg._ra_upper)
+        phase.iloc[b_end_idx:] = np.where(is_ra.values, "C2_RA_QC", "C1_DOC_POSTHIST")
+
+    g["_phase"] = phase
+
+    # --- Durations (mins) ---
+    t_start = ts.min()
+    t_end   = ts.max()
+    t_b_end = ts.iloc[b_end_idx-1] if b_end_idx > b_start_idx else t_b_start
+
+    dur_doc_qc = (t_b_end - t_b_start) if pd.notna(t_b_end) and pd.notna(t_b_start) else pd.NaT
+
+    t_c1_rows = g.index[g["_phase"]=="C1_DOC_POSTHIST"]
+    t_c2_rows = g.index[g["_phase"]=="C2_RA_QC"]
+    dur_c1 = (ts.iloc[t_c1_rows[-1]] - ts.iloc[t_c1_rows[0]]) if len(t_c1_rows) > 0 else pd.NaT
+    dur_c2 = (t_end - ts.iloc[t_c2_rows[0]]) if len(t_c2_rows) > 0 else pd.NaT
+
+    summary = dict(
+        incident_id=g.iloc[0][cfg.incident_col],
+        has_archival_block=True,
+        doc_reviewer=b_user,
+        b_start_idx=b_start_idx, b_end_idx=b_end_idx,
+        t_completed=t_completed, a_tail_end=a_tail_end,
+        t_archive_first=t_archive_first, t_archive_last=t_archive_last,
+        t_b_start=t_b_start, t_b_end=t_b_end,
+        t_c1_start=(ts.iloc[t_c1_rows[0]] if len(t_c1_rows)>0 else pd.NaT),
+        t_c2_start=(ts.iloc[t_c2_rows[0]] if len(t_c2_rows)>0 else pd.NaT),
+        dur_doc_qc_min=float(dur_doc_qc/np.timedelta64(1,"m")) if pd.notna(dur_doc_qc) else np.nan,
+        dur_c1_min=float(dur_c1/np.timedelta64(1,"m")) if pd.notna(dur_c1) else np.nan,
+        dur_c2_min=float(dur_c2/np.timedelta64(1,"m")) if pd.notna(dur_c2) else np.nan,
+        n_events_total=int(len(g)),
+        n_live=int((g["_phase"]=="A_LiveDispatch").sum()),
+        n_doc_qc=int((g["_phase"]=="B_DOC_QC").sum()),
+        n_c1=int((g["_phase"]=="C1_DOC_POSTHIST").sum()),
+        n_c2=int((g["_phase"]=="C2_RA_QC").sum()),
+    )
+    return g, summary
+
+
+
+
+
 #patch for B
 # --- B starts: NEVER before A-tail end (NEW guard) ---
 if b_run_start_idx is not None:
