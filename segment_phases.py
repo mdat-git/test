@@ -131,12 +131,12 @@ def _segment_single_incident(g: pd.DataFrame, cfg: PhaseConfig) -> Tuple[pd.Data
     user = g[cfg.user_col].astype(str)
     ts   = g[cfg.time_col]
 
-    # --- Locate archival block (all CGI_HISMGR rows) ---
+        # --- Locate archival blocks (all CGI_HISMGR rows) and pick the LAST contiguous block ---
     mgr_mask = user.str.upper().eq(cfg._mgr_upper)
     mgr_idx = np.flatnonzero(mgr_mask.values)
 
     if mgr_idx.size == 0:
-        # No archive -> per policy: everything is A
+        # No archive → per policy: everything is A
         g["_phase"] = "A_LiveDispatch"
         return g, dict(
             incident_id=g.iloc[0][cfg.incident_col],
@@ -152,13 +152,35 @@ def _segment_single_incident(g: pd.DataFrame, cfg: PhaseConfig) -> Tuple[pd.Data
             n_doc_qc=0, n_c1=0, n_c2=0
         )
 
-    first_mgr_idx = int(mgr_idx.min())
-    last_mgr_idx  = int(mgr_idx.max())
+    # Find contiguous runs within mgr_idx; pick the last run
+    # Example: mgr_idx = [5,6,7,  20,21,  40,41,42,43]  -> we choose [40..43]
+    diffs = np.diff(mgr_idx)
+    run_breaks = np.where(diffs > 1)[0]
+    run_starts = np.r_[0, run_breaks + 1]
+    run_ends   = np.r_[run_breaks, len(mgr_idx) - 1]
+
+    last_run_start_pos = int(run_starts[-1])
+    last_run_end_pos   = int(run_ends[-1])
+
+    first_mgr_idx = int(mgr_idx[last_run_start_pos])   # first row of the LAST HISMGR block
+    last_mgr_idx  = int(mgr_idx[last_run_end_pos])     # last row of the LAST HISMGR block
+
     t_archive_first = ts.iloc[first_mgr_idx]
     t_archive_last  = ts.iloc[last_mgr_idx]
 
-    # --- Completed anchor + A-tail buffer (A has priority up to Completed+tail) ---
-    t_completed = ts.loc[g["_is_completed"]].min() if g["_is_completed"].any() else pd.NaT
+    # --- Completed anchor + A-tail: use the LAST Completed that is <= t_archive_first (final cycle) ---
+    if g["_is_completed"].any():
+        completed_times = ts[g["_is_completed"]]
+        # Prefer the last Completed before (or at) the final archive block
+        le = completed_times[completed_times <= t_archive_first]
+        if not le.empty:
+            t_completed = le.max()
+        else:
+            # Fallback: no Completed before archive (weird) -> use earliest Completed seen
+            t_completed = completed_times.min()
+    else:
+        t_completed = pd.NaT
+
     a_tail_end = (t_completed + np.timedelta64(cfg.a_tail_minutes, "m")) if pd.notna(t_completed) else pd.NaT
 
     # --- DOC reviewer (B_user): last NON-manager user BEFORE FIRST manager row (skip ignorable) ---
