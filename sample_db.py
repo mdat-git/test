@@ -1,327 +1,289 @@
-import React from "react";
-import { useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Slider } from "@/components/ui/slider";
-import { Label } from "@/components/ui/label";
-import { Calendar } from "@/components/ui/calendar";
-import { Download, Filter, Search, RefreshCw, TrendingUp, Clock, Activity, Zap, Users, ShieldCheck, Map, BarChart3, Layers, Gauge, Database } from "lucide-react";
-import { ResponsiveContainer, LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend, PieChart, Pie, Cell } from "recharts";
-import { motion } from "framer-motion";
+# Create a ready-to-run Streamlit dashboard app for OMS analysis
+# It includes modern rounded cards, tabs, filters, and placeholder data.
+# Save as /mnt/data/oms_dashboard.py so the user can download it.
 
-// --- Mock Data (replace with real API data) ---
-const kpi = {
-  saidi: 42.1,
-  saifi: 0.87,
-  caidi: 48.6,
-  cmiSavedPct: 12.3,
-  validationsPerDay: 386,
-  dangerousMissRate: 0.3,
-  etrMAE: 28.4, // minutes
-};
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import textwrap
 
-const timeSeries = Array.from({ length: 26 }, (_, i) => ({
-  date: `2025-W${(i + 1).toString().padStart(2, "0")}`,
-  saidi: 20 + Math.random() * 40,
-  saifi: 0.5 + Math.random() * 0.8,
-  cmi: 2.5 + Math.random() * 4.0,
-  validations: 200 + Math.round(Math.random() * 250),
-  etr_mae: 15 + Math.random() * 35,
-}));
+app_code = r'''
+# oms_dashboard.py
+# Streamlit OMS Reliability Dashboard (rounded, modern, accessible)
+# Run with: streamlit run oms_dashboard.py
 
-const causeBreakdown = [
-  { cause: "OH Equipment", pct: 32 },
-  { cause: "UG Equipment", pct: 18 },
-  { cause: "Vegetation", pct: 22 },
-  { cause: "Weather", pct: 9 },
-  { cause: "Animals", pct: 7 },
-  { cause: "3rd Party", pct: 6 },
-  { cause: "Other", pct: 6 },
-];
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import plotly.express as px
+import plotly.graph_objects as go
 
-const districtPerf = Array.from({ length: 10 }, (_, i) => ({
-  district: `D${i + 1}`,
-  saidi: Math.round(20 + Math.random() * 60),
-  saifi: +(0.3 + Math.random()).toFixed(2),
-  cmiSavedPct: +(5 + Math.random() * 20).toFixed(1),
-}));
+# -----------------------------
+# Page config & CSS (rounded cards aesthetic)
+# -----------------------------
+st.set_page_config(
+    page_title="NOVA · OMS Reliability Dashboard",
+    page_icon="⚡",
+    layout="wide",
+)
 
-// --- Small helper components ---
-const KPI = ({ icon: Icon, label, value, suffix, help }: any) => (
-  <Card className="rounded-2xl shadow-sm">
-    <CardContent className="p-4 flex items-center gap-3">
-      <div className="p-3 rounded-xl bg-muted"><Icon className="w-5 h-5" /></div>
-      <div className="flex-1">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-2xl font-semibold tracking-tight">{value}{suffix}</div>
-      </div>
-      {help && <Badge variant="secondary" className="hidden md:inline">{help}</Badge>}
-    </CardContent>
-  </Card>
-);
-
-const Panel = ({ title, icon: Icon, children, actions }: any) => (
-  <Card className="rounded-2xl shadow-sm">
-    <CardHeader className="pb-3 flex-row items-center justify-between">
-      <div className="flex items-center gap-2">
-        <Icon className="w-5 h-5" />
-        <CardTitle className="text-base font-semibold">{title}</CardTitle>
-      </div>
-      {actions}
-    </CardHeader>
-    <CardContent className="pt-0">{children}</CardContent>
-  </Card>
-);
-
-// --- Filters ---
-function FilterBar() {
-  const [district, setDistrict] = useState("All");
-  const [feeder, setFeeder] = useState("All");
-  const [classif, setClassif] = useState("All");
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-      <Select value={district} onValueChange={setDistrict}>
-        <SelectTrigger className="rounded-xl"><SelectValue placeholder="District" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="All">All Districts</SelectItem>
-          {Array.from({ length: 12 }, (_, i) => (
-            <SelectItem key={i} value={`D${i + 1}`}>{`D${i + 1}`}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select value={feeder} onValueChange={setFeeder}>
-        <SelectTrigger className="rounded-xl"><SelectValue placeholder="Feeder" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="All">All Feeders</SelectItem>
-          {Array.from({ length: 8 }, (_, i) => (
-            <SelectItem key={i} value={`FDR-${i + 1}`}>{`FDR-${i + 1}`}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select value={classif} onValueChange={setClassif}>
-        <SelectTrigger className="rounded-xl"><SelectValue placeholder="Incident Class" /></SelectTrigger>
-        <SelectContent>
-          {['All','Single-Line','Multi-Step','Planned','Storm','Major Event'].map(c => (
-            <SelectItem key={c} value={c}>{c}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Input className="rounded-xl" placeholder="Search incident, device, note…" />
-      <div className="flex gap-2">
-        <Button variant="outline" className="rounded-xl w-full md:w-auto"><Filter className="w-4 h-4 mr-2"/>Advanced</Button>
-        <Button className="rounded-xl w-full md:w-auto"><Search className="w-4 h-4 mr-2"/>Query</Button>
-      </div>
-    </div>
-  );
+CARD_CSS = """
+<style>
+:root {
+  --card-radius: 16px;
+  --card-bg: rgb(255 255 255 / 0.65);
+  --card-shadow: 0 2px 16px rgba(0,0,0,0.08);
+}
+/* Dark mode safe bg */
+[data-theme="dark"] :root, [data-theme="dark"] body, body.dark {
+  --card-bg: rgb(30 30 30 / 0.45);
 }
 
-// --- Charts ---
-function TrendChart() {
-  return (
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={timeSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-          <defs>
-            <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopOpacity={0.35} />
-              <stop offset="100%" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-          <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
-          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Legend />
-          <Area yAxisId="left" type="monotone" dataKey="saidi" name="SAIDI (min)" strokeWidth={2} fillOpacity={1} fill="url(#g1)" />
-          <Line yAxisId="left" type="monotone" dataKey="saifi" name="SAIFI" strokeWidth={2} dot={false} />
-          <Line yAxisId="right" type="monotone" dataKey="etr_mae" name="ETR MAE (min)" strokeDasharray="5 3" strokeWidth={2} dot={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
+.block-container { padding-top: 1.2rem; }
+.card {
+  border-radius: var(--card-radius);
+  padding: 14px 16px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border: 1px solid rgba(120,120,120,0.15);
+}
+.kpi-value { font-weight: 700; font-size: 1.7rem; line-height: 1; }
+.kpi-label { font-size: 0.8rem; color: rgba(120,120,120,0.9); margin-top: 4px; }
+.kpi-suffix { font-weight: 600; opacity: 0.8; }
+.section-title {
+  font-weight: 700; font-size: 1.05rem; margin: 0 0 8px 0;
+  display:flex; align-items:center; gap:8px;
+}
+.tag {
+  display:inline-block; padding:4px 10px; border-radius:999px;
+  border:1px solid rgba(120,120,120,0.25); font-size:0.8rem;
+}
+hr.soft { border:none; height:1px; background:rgba(120,120,120,0.2); margin:12px 0; }
+</style>
+"""
+st.markdown(CARD_CSS, unsafe_allow_html=True)
+
+# -----------------------------
+# Mock data generators (replace with Snowflake/HANA views later)
+# -----------------------------
+np.random.seed(42)
+
+weeks = pd.date_range(datetime.today() - timedelta(weeks=25), periods=26, freq="W-MON")
+ts = pd.DataFrame({
+    "date": weeks.date,
+    "SAIDI": 20 + np.random.rand(len(weeks)) * 40,
+    "SAIFI": 0.5 + np.random.rand(len(weeks)) * 0.8,
+    "CMI_M": 2.5 + np.random.rand(len(weeks)) * 4.0,
+    "Validations": 200 + np.random.randint(0, 250, len(weeks)),
+    "ETR_MAE": 15 + np.random.rand(len(weeks)) * 35,  # minutes
+})
+
+districts = [f"D{i}" for i in range(1, 13)]
+district_perf = pd.DataFrame({
+    "District": districts,
+    "SAIDI": np.random.randint(20, 80, len(districts)),
+    "SAIFI": np.round(0.3 + np.random.rand(len(districts)), 2),
+    "CMI_Saved_pct": np.round(5 + np.random.rand(len(districts)) * 20, 1),
+})
+
+cause_mix = pd.DataFrame({
+    "Cause": ["OH Equipment", "UG Equipment", "Vegetation", "Weather", "Animals", "3rd Party", "Other"],
+    "Percent": [32, 18, 22, 9, 7, 6, 6],
+})
+
+# Top-level KPIs
+kpi = {
+    "SAIDI": round(42.1, 1),
+    "SAIFI": round(0.87, 2),
+    "CAIDI": round(48.6, 1),
+    "CMI Saved %": 12.3,
+    "Validations/day": 386,
+    "Dangerous Miss %": 0.3,
+    "ETR MAE (min)": 28.4,
 }
 
-function DistrictBars() {
-  return (
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={districtPerf}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="district" tick={{ fontSize: 12 }} />
-          <YAxis tick={{ fontSize: 12 }} />
-          <Tooltip />
-          <Legend />
-          <Bar dataKey="saidi" name="SAIDI" />
-          <Bar dataKey="saifi" name="SAIFI" />
-          <Bar dataKey="cmiSavedPct" name="CMI Saved %" />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+# -----------------------------
+# Header
+# -----------------------------
+left, mid, right = st.columns([2,6,3])
+with left:
+    st.markdown("### ⚡ NOVA · OMS Reliability Dashboard")
+with mid:
+    st.write("")
+with right:
+    c1, c2 = st.columns([1,1])
+    with c1:
+        st.button("Refresh", use_container_width=True)
+    with c2:
+        st.download_button("Export CSV", ts.to_csv(index=False).encode(), "oms_timeseries.csv", use_container_width=True)
 
-function CausePie() {
-  return (
-    <div className="h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Tooltip />
-          <Legend />
-          <Pie data={causeBreakdown} dataKey="pct" nameKey="cause" innerRadius={50} outerRadius={90} />
-        </PieChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
+# -----------------------------
+# Filters Card
+# -----------------------------
+with st.container():
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🔎 Filters <span class="tag">Last 12 months</span></div>', unsafe_allow_html=True)
+    f1, f2, f3, f4, f5 = st.columns([1,1,1,2,1])
+    with f1:
+        d = st.selectbox("District", ["All"] + districts, index=0)
+    with f2:
+        feeder = st.selectbox("Feeder", ["All"] + [f"FDR-{i}" for i in range(1, 9)], index=0)
+    with f3:
+        klass = st.selectbox("Incident Class", ["All", "Single-Line", "Multi-Step", "Planned", "Storm", "Major Event"], index=0)
+    with f4:
+        query = st.text_input("Search incident/device/note…", "")
+    with f5:
+        st.write("")
+        st.button("Advanced", use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-// --- Main Component ---
-export default function OMSReliabilityDashboard() {
-  return (
-    <div className="min-h-screen w-full bg-background text-foreground">
-      <motion.header initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
-        className="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-background/75 border-b">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-muted"><Layers className="w-5 h-5" /></div>
-          <h1 className="font-semibold tracking-tight text-lg">NOVA · OMS Reliability Dashboard</h1>
-          <Badge variant="secondary" className="ml-auto">v1</Badge>
-          <Button variant="outline" size="sm" className="rounded-xl"><RefreshCw className="w-4 h-4 mr-2"/>Refresh</Button>
-          <Button size="sm" className="rounded-xl"><Download className="w-4 h-4 mr-2"/>Export</Button>
-        </div>
-      </motion.header>
+# -----------------------------
+# KPI Cards
+# -----------------------------
+def kpi_card(title, value, suffix=""):
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-value">{value}<span class="kpi-suffix">{suffix}</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="kpi-label">{title}</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-5">
-        {/* Filters */}
-        <Panel title="Filters" icon={Filter} actions={<Badge variant="outline">Last 12 months</Badge>}>
-          <FilterBar />
-        </Panel>
+c1, c2, c3, c4 = st.columns(4)
+with c1: kpi_card("SAIDI (min)", kpi["SAIDI"])
+with c2: kpi_card("SAIFI", kpi["SAIFI"])
+with c3: kpi_card("CAIDI (min)", kpi["CAIDI"])
+with c4: kpi_card("CMI Saved vs Baseline", kpi["CMI Saved %"], "%")
 
-        {/* KPI Row */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KPI icon={TrendingUp} label="SAIDI (min)" value={kpi.saidi} help="IEEE 1366" />
-          <KPI icon={Activity} label="SAIFI" value={kpi.saifi} />
-          <KPI icon={Clock} label="CAIDI (min)" value={kpi.caidi} />
-          <KPI icon={Zap} label="CMI Saved vs Baseline" value={kpi.cmiSavedPct} suffix="%" />
-        </div>
+c5, c6, c7 = st.columns(3)
+with c5: kpi_card("Validations / Day", kpi["Validations/day"])
+with c6: kpi_card("Dangerous Miss Rate", kpi["Dangerous Miss %"], "%")
+with c7: kpi_card("ETR MAE (min)", kpi["ETR MAE (min)"])
 
-        {/* Second KPI Row */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <KPI icon={Gauge} label="Validations / Day" value={kpi.validationsPerDay} />
-          <KPI icon={ShieldCheck} label="Dangerous Miss Rate" value={kpi.dangerousMissRate} suffix="%" />
-          <KPI icon={BarChart3} label="ETR MAE (min)" value={kpi.etrMAE} />
-        </div>
+# -----------------------------
+# Tabs
+# -----------------------------
+tab_exec, tab_ops, tab_etr, tab_cause = st.tabs(["Executive", "Validation Ops", "ETR Quality", "Cause & Classification"])
 
-        <Tabs defaultValue="exec" className="w-full">
-          <TabsList className="grid w-full grid-cols-4 rounded-xl">
-            <TabsTrigger value="exec">Executive</TabsTrigger>
-            <TabsTrigger value="ops">Validation Ops</TabsTrigger>
-            <TabsTrigger value="etr">ETR Quality</TabsTrigger>
-            <TabsTrigger value="cause">Cause & Classification</TabsTrigger>
-          </TabsList>
+# --- Executive tab ---
+with tab_exec:
+    # Reliability Trends
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">📈 Reliability Trends</div>', unsafe_allow_html=True)
 
-          {/* Executive */}
-          <TabsContent value="exec" className="space-y-4">
-            <Panel title="Reliability Trends" icon={Activity}>
-              <TrendChart />
-            </Panel>
-            <div className="grid gap-4 md:grid-cols-2">
-              <Panel title="District Performance" icon={Map}>
-                <DistrictBars />
-              </Panel>
-              <Panel title="Cause Mix" icon={Database}>
-                <CausePie />
-              </Panel>
-            </div>
-          </TabsContent>
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["SAIDI"], name="SAIDI (min)", mode="lines"))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["SAIFI"], name="SAIFI", mode="lines"))
+    fig.add_trace(go.Scatter(x=ts["date"], y=ts["ETR_MAE"], name="ETR MAE (min)", mode="lines", line=dict(dash="dash")))
+    fig.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=380, legend_orientation="h", legend_y=-0.2)
+    st.plotly_chart(fig, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-          {/* Validation Ops */}
-          <TabsContent value="ops" className="space-y-4">
-            <Panel title="Validation Throughput" icon={Users}>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={timeSeries}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Bar dataKey="validations" name="Validations / Day" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-            <Panel title="Work Mix & Savings" icon={Gauge}>
-              <div className="grid md:grid-cols-2 gap-3">
-                <div>
-                  <Label>Auto-approve threshold</Label>
-                  <Slider defaultValue={[80]} step={1} min={50} max={99} className="mt-2" />
-                  <p className="text-sm text-muted-foreground mt-2">Tune threshold to balance workload saved vs. Dangerous Miss rate.</p>
-                </div>
-                <div className="h-40">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={timeSeries}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" hide />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="cmi" name="CMI (M)" dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </Panel>
-          </TabsContent>
+    # District Performance & Cause Mix
+    colA, colB = st.columns(2)
+    with colA:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🗺️ District Performance</div>', unsafe_allow_html=True)
+        fig_bar = px.bar(district_perf, x="District", y=["SAIDI", "SAIFI", "CMI_Saved_pct"], barmode="group")
+        fig_bar.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=380, legend_orientation="h", legend_y=-0.2)
+        st.plotly_chart(fig_bar, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-          {/* ETR Quality */}
-          <TabsContent value="etr" className="space-y-4">
-            <Panel title="ETR Error Over Time" icon={Clock}>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={timeSeries}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="etr_mae" name="MAE (min)" dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-            <Panel title="Top ETR Failure Patterns (NLP)" icon={Layers}>
-              <ul className="text-sm grid md:grid-cols-2 gap-2">
-                {["Disable ETR recalculation @ <place>", "Remove ETR for <place> (MAN/SYS)", "Inspection ETR set then cleared", "Conflicting Followup: CREW_ACTION vs FOLLOWUP", "CGI_HISMGR archived → reopened"].map((t, i) => (
-                  <li key={i} className="p-2 rounded-lg bg-muted">{t}</li>
-                ))}
-              </ul>
-            </Panel>
-          </TabsContent>
+    with colB:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">🧰 Cause Mix</div>', unsafe_allow_html=True)
+        fig_pie = px.pie(cause_mix, names="Cause", values="Percent", hole=0.45)
+        fig_pie.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=380, legend_orientation="h", legend_y=-0.2)
+        st.plotly_chart(fig_pie, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-          {/* Cause & Classification */}
-          <TabsContent value="cause" className="space-y-4">
-            <Panel title="Causes by District" icon={BarChart3}>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={districtPerf}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="district" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="cmiSavedPct" name="% Low-Impact Auto-Validated" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </Panel>
-            <Panel title="Cause Distribution" icon={Database}>
-              <CausePie />
-            </Panel>
-          </TabsContent>
-        </Tabs>
-      </main>
-    </div>
-  );
-}
+# --- Validation Ops tab ---
+with tab_ops:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">👥 Validation Throughput</div>', unsafe_allow_html=True)
+    fig_val = px.bar(ts, x="date", y="Validations")
+    fig_val.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=360)
+    st.plotly_chart(fig_val, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Work Mix & Savings + threshold slider
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🎚️ Work Mix & Savings</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns([1,1])
+    with col1:
+        thr = st.slider("Auto-approve threshold (classifier probability)", 50, 99, 80, step=1)
+        # Simple demo curve: higher threshold -> lower workload saved, lower dangerous miss
+        workload_saved = max(0, 100 - (thr - 50) * 2)  # fake curve
+        dangerous_miss = max(0.1, (100 - thr) * 0.02)  # fake curve
+        st.metric("Estimated workload saved", f"{workload_saved:.0f}%")
+        st.metric("Estimated dangerous miss rate", f"{dangerous_miss:.1f}%")
+        st.caption("Tune threshold to balance workload saved vs. dangerous-miss risk.")
+    with col2:
+        fig_cmi = px.line(ts, x="date", y="CMI_M", markers=False)
+        fig_cmi.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=260, yaxis_title="CMI (Millions)")
+        st.plotly_chart(fig_cmi, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- ETR Quality tab ---
+with tab_etr:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">⏱️ ETR Error Over Time</div>', unsafe_allow_html=True)
+    fig_etr = px.line(ts, x="date", y="ETR_MAE")
+    fig_etr.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=360, yaxis_title="MAE (minutes)")
+    st.plotly_chart(fig_etr, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🧩 Top ETR Failure Patterns (NLP)</div>', unsafe_allow_html=True)
+    patterns = [
+        "Disable ETR recalculation @ <place>",
+        "Remove ETR for <place> (MAN/SYS)",
+        "Inspection ETR set then cleared",
+        "Conflicting Followup: CREW_ACTION vs FOLLOWUP",
+        "CGI_HISMGR archived → reopened (contiguous block)",
+    ]
+    for p in patterns:
+        st.markdown(f"- {p}")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- Cause & Classification tab ---
+with tab_cause:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🏷️ Causes by District</div>', unsafe_allow_html=True)
+    fig_cause_bar = px.bar(district_perf, x="District", y="CMI_Saved_pct", labels={"CMI_Saved_pct":"% Low-Impact Auto-Validated"})
+    fig_cause_bar.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=380)
+    st.plotly_chart(fig_cause_bar, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">🧮 Cause Distribution</div>', unsafe_allow_html=True)
+    fig_cause_pie = px.pie(cause_mix, names="Cause", values="Percent", hole=0.45)
+    fig_cause_pie.update_layout(margin=dict(l=10,r=10,t=10,b=10), height=380, legend_orientation="h", legend_y=-0.2)
+    st.plotly_chart(fig_cause_pie, use_container_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# -----------------------------
+# Notes for integration
+# -----------------------------
+with st.expander("Integration notes (replace mocks with live data)"):
+    st.markdown("""
+**Data joins you’ll likely need**
+- **Incident → Device → Location** mapping from OMS HIS tables
+- **AMI meters ↔ Incident** link (for CI/CMI deltas)
+- **FOLLOWUP_DESC & CREW_ACTION** parsed events for ETR set/clear, cause tagging
+- **District/Feeder** lookups for rollups
+
+**Key measures**
+- SAIDI/SAIFI/CAIDI (IEEE 1366)
+- CMI saved vs baseline (define baseline period or counterfactual model)
+- Validations/day, auto-approve %, dangerous-miss %
+- ETR quality: MAE/MedianAE/P90, bias by cause/storm/district
+
+**How to wire**
+- Replace `ts`, `district_perf`, `cause_mix`, `kpi` dict with Snowflake/HANA queries via `snowflake-connector-python` or `sqlalchemy`.
+- Cache heavy queries with `@st.cache_data(ttl=900)`.
+- Use a feature flag in `st.sidebar` to switch environments (DEV/UAT/PROD).
+""")
+'''
+with open('/mnt/data/oms_dashboard.py', 'w', encoding='utf-8') as f:
+    f.write(app_code)
+
+'/mnt/data/oms_dashboard.py'
