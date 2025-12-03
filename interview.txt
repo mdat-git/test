@@ -1,0 +1,146 @@
+1️⃣ 30-second self-introduction
+“I’m currently in Grid Operations working on reliability and analytics, where I build audit-ready outage datasets and turn OMS data into decision support for leadership. Before this, I was in the inspections group, where I owned the operating plan, worked directly with vendors and finance, and advised on throughput, spend, and risk. I also have a Master of Taxation, so I’m comfortable at the intersection of operations, finance, and data. Overall, my focus has been helping leaders make better decisions with cleaner data and clearer financial visibility, which is why this Advisor role is a really natural next step for me.”
+
+2️⃣ Three core themes you want them to remember
+You don’t say these as bullets, but you weave them through everything:
+I already know this space and can contribute immediately.
+
+
+“I’ve worked in this department before and I’m familiar with the inspections program, vendors, and financials.”
+
+
+I bring a rare combo: operations + finance/tax + data/BI.
+
+
+“I’ve managed inspection financials, I have a Master of Taxation, and I build analytics and data pipelines in Grid Ops.”
+
+
+I operate like an advisor, not just an executor.
+
+
+“I don’t just run reports — I frame trade-offs, recommend paths forward, and help leadership make informed decisions.”
+
+
+3️⃣ Role understanding statement
+“My understanding is that this Advisor role is really about being the connective tissue between inspections in the field, vendor performance, finance, and compliance. It’s not just tracking work orders – it’s advising on how inspections are planned and funded, making sure the data and financials accurately reflect what’s happening on the system, and giving leadership clear, reliable information to make decisions about risk, spend, and program direction. That’s the kind of work I’ve done before and the space I want to keep operating in.”
+﻿6️⃣ Failure / mistake example (STAR, advisor-tone)
+Situation – Early in my current role, I published an initial version of a reliability dashboard where I had misunderstood one piece of how OMS merges related incidents. That caused a small amount of double counting in one metric.
+Task – I needed to fix the issue quickly and protect trust in the numbers.
+Action – I dug into the incident history, identified the exact logic gap, and corrected the merge rules. I then set up reconciliation checks that compare key counts and customer minutes to expected ranges before any update goes out, and I let stakeholders know what happened and how it was addressed.
+Result – The impact on decisions was minimal because we caught it early, and the controls I put in place actually improved confidence in the dashboard. It was a good reminder that for this kind of work, building in validation and governance is just as important as building the metric itself.
+
+﻿7️⃣ Weakness answer (safe but strong)
+“One area I’ve worked on is my tendency to go very deep before sharing my work. My instinct has always been to bring something close to finished before I show it, especially on complex analyses. The risk is that you can invest a lot of time and then find out the audience needed something different.
+Over the last couple of years, I’ve gotten much better at sharing early drafts and explicitly saying, ‘This is version one, help me shape it.’ For example, on some of the outage analytics work, I now bring rough visuals and logic to stakeholders early, get their feedback on what’s useful, and then refine. It’s still important to me to produce high-quality work, but I’ve learned that involving people sooner actually leads to better outcomes and less rework.”
+8️⃣ Conflict / difficult colleague story (STAR, advisor language)
+Situation – When I was working on the idea of reducing validation workload for certain low-impact outages, one of the stakeholders was very skeptical. They were worried this was just “pushing a model” and would increase risk or undermine operator judgment.
+Task – I needed to keep the relationship strong and still move the conversation toward a more efficient process.
+Action – I set up a separate conversation and asked them to walk me through their concerns in detail. Then I pulled up a Power BI view with their own district’s data and let them drive: filtering, picking examples, and pointing out edge cases. I acknowledged where their concerns were valid and incorporated some of their conditions as explicit safeguards in the proposal. When we went back to the larger group, I made sure to highlight that those safeguards came from their input.
+Result – That stakeholder shifted from being a blocker to being a partner in shaping the approach. It also made the final recommendation stronger, because it reflected both the data and the practical realities they were worried about.
+9️⃣ Career vision / 3–5 year answer
+“In the next 3–5 years, I see myself growing into a role where I’m regularly helping shape programs and decisions, not just doing analysis in the background. I enjoy being close to the work, but I also like sitting at the table where we’re balancing risk, cost, and operational needs.
+This Advisor role is a natural step in that direction because it sits at the intersection of inspections, finance, and data, and it’s explicitly about providing guidance and decision support. My longer-term path is toward leadership in this space, and I see this role as the right platform to build that – while still contributing right away with the experience I already have.”
+
+
+⭐ STAR STORY #1 — Risk-Based Validation (NOVA)
+Themes: Innovation, complex analysis, influencing stakeholders, risk assessment, decision guidance
+S – Situation
+ Our validation team was overloaded because every outage was being manually validated, even though many events rarely changed customer impact.
+T – Task
+ I was asked to evaluate whether we could safely reduce workload and advise leadership on a path forward.
+A – Action
+ I led the analysis using historical OMS data and AutoGluon to quantify which validations actually changed CMI. I advised leadership that a risk-based framework could maintain metric integrity while reducing workload.
+ I proposed conservative thresholds, built monitoring safeguards, and walked DOC/RA through district-level examples so we could align on comfort levels.
+R – Result
+ Leadership used my recommendations to reshape the strategy for validation workload. This shifted the conversation from “validate everything” to “validate where it matters,” establishing a more efficient, data-guided process.
+
+⭐ STAR STORY #2 — ETR Performance Analysis
+Themes: Complex/technical analysis, imperfect data, decision support, communication
+S – Situation
+ Leadership wanted visibility into ETR accuracy, but there was no historical table tracking ETR changes.
+T – Task
+ My role was to build that visibility and provide guidance on where accuracy issues were coming from.
+A – Action
+ I designed a daily snapshot pipeline to reconstruct ETR histories, developed metrics for revision frequency and accuracy, and highlighted confidence levels where data was incomplete.
+ I presented findings in a way that supported decision-making—calling out which districts and cause codes showed systemic issues and why.
+R – Result
+ Leadership finally had a clear ETR scorecard, enabling targeted improvements instead of generic pressure. My work became the foundation for ongoing ETR quality initiatives.
+
+⭐ STAR STORY #3 — OMS Event-Log Pipeline
+Themes: Process improvement, data governance, cross-team coordination, building organizational capability
+S – Situation
+ Different teams were pulling OMS event logs in inconsistent ways, leading to conflicting numbers and wasted effort.
+T – Task
+ I needed to advise on a standardized, reusable, and audit-ready approach.
+A – Action
+ I developed a canonical event-log dataset: daily snapshots, defined business rules, validation checks, and clear documentation. I guided analysts across Grid Ops and RA on how to transition to the new structure and answered questions on the definitions and logic.
+R – Result
+ This became the source of truth for multiple dashboards and models. It greatly reduced rework, improved accuracy, and strengthened our compliance posture by ensuring consistent traceability.
+
+⭐ STAR STORY #4 — Inspections Operating Plan (Your E/E Work)
+Themes: Cross-functional leadership, financial stewardship, planning, gaining cooperation, advisory impact
+S – Situation
+ In my previous inspections role, leadership needed a defensible, realistic annual operating plan that aligned vendors, finance, and operations.
+T – Task
+ As the financial/analytical lead, I was responsible for building the plan and advising all groups on capacity, cost, and risk.
+A – Action
+ I developed a forecasting model using historical throughput, vendor rates, staffing levels, and seasonality. I provided guidance on guardrails, contingencies, and operational constraints.
+ I aligned finance, ops, and vendor partners on assumptions and ensured the plan could support GRC testimony.
+R – Result
+ The plan was approved without escalation, hit targets within budget, and earned me one of SCE’s highest performance ratings (E/E)—recognizing the strategic and financial rigor I brought to the program.
+
+⭐ STAR STORY #5 — Vendor Invoice Validator + Monthly Accruals
+Themes: Financial controls, compliance, automation, accuracy, advisory value
+S – Situation
+ Vendor invoices arrived as large spreadsheets with hundreds of billed structures, and manual review created errors. Our monthly spend also swung unpredictably because work delivered wasn’t always invoiced on time.
+T – Task
+ I needed to strengthen billing accuracy and create financial consistency for leadership.
+A – Action
+ I developed an automated validator that cross-checked every billed structure against our asset database—reducing manual review and preventing overpayment.
+ I also implemented monthly and year-end accruals by advising finance on completed-but-unbilled work, stabilizing our spend profile.
+R – Result
+ We eliminated billing discrepancies, achieved clean month-to-month financials, and provided leadership with a more accurate view of actual work performed. This work significantly improved the program’s financial integrity.
+
+
+
+⭐ STAR STORY #6 — SALT Exposure Modeling (Master of Taxation Capstone)
+Themes: Finance, complex analysis, BI, regulatory compliance, advising leadership
+S – Situation
+ During my Master of Taxation program, we partnered with EY on a capstone where a multi-state company had no clear visibility into where they had SALT exposure. They operated in many states, but there was uncertainty around whether they had crossed economic or physical nexus thresholds — meaning they didn’t know where they were actually required to pay tax.
+T – Task
+ My task was to analyze real transaction-level data and advise the client on their true SALT risk profile, while also giving leadership options for how to improve their tax position.
+A – Action
+ I designed a Power BI model that ingested thousands of transactions, mapped them to jurisdictions, and overlaid each state’s nexus rules (physical presence, economic thresholds, transaction counts).
+ I identified where the company had clearly crossed nexus, where they were approaching thresholds, and what that meant financially.
+ I then translated the technical SALT concepts into decision-ready insights — explaining nexus in plain language (“when you do enough business for a state to tax you”) and presenting multiple operating scenarios so leadership could compare risk outcomes.
+R – Result
+ The company received, for the first time, a clear visual exposure map showing exactly where they had tax risk and how operational changes would shift their liabilities.
+ Leadership used my analysis to adjust their filing positions, correct exposure in high-risk states, and evaluate more advantageous structures going forward.
+ The project stood out because of how effectively I combined tax rules, data modeling, BI visualization, and advisory communication — which mirrors exactly how I operate today in utility analytics and compliance.
+
+
+⭐ YOUR “WHY I’M WORTH IT” PITCH (Advisor Version)
+“What makes me valuable in this role is the combination of experiences I bring that directly align with the work.
+I’ve already operated in this department and delivered at a high level — including owning the inspections operating plan, coordinating with vendors and finance, and advising leadership on throughput, spend, and risk. So I understand the programs, the compliance expectations, and how decisions actually get made on the ground.
+At the same time, I bring the analytical depth from my current Grid Ops role — building outage data pipelines, creating audit-ready datasets, and translating complex OMS information into clear, actionable guidance for operations and leadership.
+And I also bring a strong finance and regulatory foundation from my Master of Taxation, where I used real transaction data to advise on multistate exposure and build BI models for decision-making.
+That combination — operational experience, financial judgment, and data-driven advisory skills — means I can support this role from day one with almost no ramp-up. I can help shape decisions, guide planning, and provide clear, reliable analysis that leadership can trust.
+That’s why I’m confident I bring above-average value to this position.”
+
+
+
+
+
+
+
+⭐ FULL VERSION (45–60 seconds)
+WHY I WANT THIS JOB
+“I’m interested in this role because it combines the parts of the work that I’ve always liked and where I’ve been most effective. I’ve done this type of inspections and program management work before, and I really enjoyed the balance of operational understanding, financial oversight, and advising leadership on decisions.
+What stands out about this position is that it’s much more of an advisor role — it’s about helping guide programs, shaping strategy, and providing clear, data-supported recommendations. That’s the level I want to operate at. It plays directly to the strengths I’ve been building in my current Grid Ops role, where a lot of my work is translating complex data into guidance leadership can actually use.
+And long term, I’m aiming toward leadership and management. This role is a natural step in that trajectory because it puts me closer to the decision-making side of the organization while still leveraging my operations, finance, and analytical background.
+So it’s not just that I’ve done this work before — it’s that this is the direction I want my career to move toward, and I know I can contribute here at a very high level.”
+
+⭐ MID VERSION (25–30 seconds)
+“I want this role because it’s the intersection of the work I enjoy most: inspections, financial oversight, and data-driven decision support. I’ve done this work before and I know I’m strong at it, but I’m especially drawn to the advisory aspect — guiding programs, shaping decisions, and supporting leadership with clear analysis.
+It also aligns with my long-term goal of moving into leadership. This role gives me the opportunity to contribute immediately while growing in the exact direction I want.”
+
