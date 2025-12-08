@@ -1,6 +1,5 @@
 import re
 
-# Map the form labels to your desired column names
 LABEL_MAP = {
     "Type of Inspection":        "type_of_inspection",
     "SAP Notification Number":   "sap_notification_number",
@@ -29,18 +28,24 @@ LABEL_MAP = {
     "Photos":                    "photos_raw",
 }
 
+MAILTO_RE = re.compile(r"<mailto:[^>]+>")  # remove mailto tags
+
+def clean_value(v: str) -> str:
+    v = MAILTO_RE.sub("", v).strip()
+    return v if v else None
+
 
 def parse_p1_form_from_body(body: str) -> dict:
     """
-    Minimal parser for the OVERHEAD DETAIL INSPECTION P1 FORM
-    from a plain-text Outlook body.
+    Handles:
+    - label: value
+    - label:\nvalue
+    - multi-line Comments, Photos
     """
-
-    # Initialize result with None
     result = {v: None for v in LABEL_MAP.values()}
     result["photo_urls"] = []
 
-    # Only keep the part starting at the form header, if present
+    # Only keep the form section
     header = "OVERHEAD DETAIL INSPECTION P1 FORM"
     idx = body.find(header)
     if idx != -1:
@@ -48,30 +53,46 @@ def parse_p1_form_from_body(body: str) -> dict:
 
     lines = [ln.rstrip() for ln in body.splitlines()]
 
-    current_key = None
+    current_key = None      # key we are filling (for continuation lines)
+    waiting_for_value = None  # label that had no value on the same line
 
     for line in lines:
-        if not line.strip():
+        stripped = line.strip()
+        if not stripped:
             continue
 
-        if ":" in line:
-            # New label encountered
-            label_raw, value_raw = line.split(":", 1)
-            label = label_raw.strip().rstrip()      # handles "Reported By :" case
-            value = value_raw.strip()
+        # Case: Label:
+        if stripped.endswith(":") and stripped[:-1] in LABEL_MAP:
+            waiting_for_value = LABEL_MAP[stripped[:-1]]
+            current_key = waiting_for_value
+            continue
+
+        # Case: Label: value
+        if ":" in stripped:
+            label_raw, value_raw = stripped.split(":", 1)
+            label = label_raw.strip().rstrip()
+            value = clean_value(value_raw.strip())
 
             if label in LABEL_MAP:
-                current_key = LABEL_MAP[label]
-                # start / overwrite with this line's value
-                result[current_key] = value or None
+                key = LABEL_MAP[label]
+                result[key] = value
+                current_key = key
+                waiting_for_value = None
                 continue
 
-        # Continuation line for previous field (multi-line Comments/Photos/etc.)
-        if current_key and line.strip():
-            existing = result.get(current_key) or ""
-            result[current_key] = (existing + " " + line.strip()).strip()
+        # Case: value line when previous label had no inline value
+        if waiting_for_value:
+            result[waiting_for_value] = clean_value(stripped)
+            waiting_for_value = None
+            current_key = waiting_for_value
+            continue
 
-    # Extract all URLs (primarily for Photos)
+        # Otherwise, it's a continuation line (Comments or Photos)
+        if current_key:
+            existing = result[current_key] or ""
+            result[current_key] = (existing + " " + stripped).strip()
+
+    # Extract URLs from entire body
     urls = re.findall(r"https?://\S+", body)
     result["photo_urls"] = urls
 
