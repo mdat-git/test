@@ -125,3 +125,41 @@ for cid, msgs in threads.items():
         msg["is_origin"] = (i == 0)
 
         final.append(msg)
+
+
+
+## Datetime safe
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+PACIFIC = ZoneInfo("America/Los_Angeles")
+
+def safe_datetime(dt_obj):
+    """
+    Convert Outlook/pywintypes datetime to a timezone-aware
+    Python datetime in California time (America/Los_Angeles).
+    Returns None if dt_obj is missing or invalid.
+    """
+    if dt_obj is None:
+        return None
+
+    try:
+        # pywintypes.datetime usually behaves like a naive local datetime
+        if dt_obj.tzinfo is None:
+            # Treat it as local Pacific time and attach tzinfo
+            return datetime(
+                dt_obj.year,
+                dt_obj.month,
+                dt_obj.day,
+                dt_obj.hour,
+                dt_obj.minute,
+                dt_obj.second,
+                getattr(dt_obj, "microsecond", 0),
+                tzinfo=PACIFIC,
+            )
+        else:
+            # If it already has tzinfo, convert to Pacific
+            return dt_obj.astimezone(PACIFIC)
+    except Exception:
+        return None
+
