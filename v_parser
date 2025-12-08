@@ -1,0 +1,78 @@
+import re
+
+# Map the form labels to your desired column names
+LABEL_MAP = {
+    "Type of Inspection":        "type_of_inspection",
+    "SAP Notification Number":   "sap_notification_number",
+    "SAP Order #":               "sap_order_number",
+    "Problem Statement":         "problem_statement",
+    "Reported By":               "reported_by",
+    "Reporter's Email":          "reporter_email",
+    "Reporter's Contact Number": "reporter_contact_number",
+    "Reporter's Full Name":      "reporter_full_name",
+    "Type of Employee":          "employee_type",
+    "Company Name":              "company_name",
+    "Created At":                "created_at",
+    "District Number":           "district_number",
+    "High Fire":                 "high_fire",
+    "How P1 was Identified":     "how_p1_identified",
+    "CIP":                       "cip",
+    "Address":                   "address",
+    "Circuit Voltage":           "circuit_voltage",
+    "Floc":                      "floc",
+    "SFloc":                     "sfloc",
+    "Circuit Name":              "circuit_name",
+    "Longitude":                 "longitude",
+    "Latitude":                  "latitude",
+    "WorkOrderNumber":           "work_order_number",
+    "Comments":                  "comments",
+    "Photos":                    "photos_raw",
+}
+
+
+def parse_p1_form_from_body(body: str) -> dict:
+    """
+    Minimal parser for the OVERHEAD DETAIL INSPECTION P1 FORM
+    from a plain-text Outlook body.
+    """
+
+    # Initialize result with None
+    result = {v: None for v in LABEL_MAP.values()}
+    result["photo_urls"] = []
+
+    # Only keep the part starting at the form header, if present
+    header = "OVERHEAD DETAIL INSPECTION P1 FORM"
+    idx = body.find(header)
+    if idx != -1:
+        body = body[idx + len(header):]
+
+    lines = [ln.rstrip() for ln in body.splitlines()]
+
+    current_key = None
+
+    for line in lines:
+        if not line.strip():
+            continue
+
+        if ":" in line:
+            # New label encountered
+            label_raw, value_raw = line.split(":", 1)
+            label = label_raw.strip().rstrip()      # handles "Reported By :" case
+            value = value_raw.strip()
+
+            if label in LABEL_MAP:
+                current_key = LABEL_MAP[label]
+                # start / overwrite with this line's value
+                result[current_key] = value or None
+                continue
+
+        # Continuation line for previous field (multi-line Comments/Photos/etc.)
+        if current_key and line.strip():
+            existing = result.get(current_key) or ""
+            result[current_key] = (existing + " " + line.strip()).strip()
+
+    # Extract all URLs (primarily for Photos)
+    urls = re.findall(r"https?://\S+", body)
+    result["photo_urls"] = urls
+
+    return result
