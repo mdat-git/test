@@ -99,3 +99,29 @@ def parse_p1_form_from_body(body: str) -> dict:
             result[current_key] = (existing + " " + stripped).strip()
 
     return result
+
+
+
+############## IDENTIFYING ORDER 
+from collections import defaultdict
+
+threads = defaultdict(list)
+
+# Group by thread
+for row in rows:
+    cid = row["conversation_id"]
+    threads[cid].append(row)
+
+# Analyze each thread
+final = []
+
+for cid, msgs in threads.items():
+    # Sort by conversation index length (shortest = origin)
+    msgs_sorted = sorted(msgs, key=lambda x: len(x["conversation_index"] or ""))
+
+    # Tag them
+    for i, msg in enumerate(msgs_sorted):
+        msg["reply_order"] = i
+        msg["is_origin"] = (i == 0)
+
+        final.append(msg)
