@@ -428,3 +428,41 @@ for cid, msgs in threads.items():
 origin_df = pd.DataFrame(origin_rows)
 origin_df.to_csv("p1_incidents_with_replies.csv", index=False)
 print("Saved p1_incidents_with_replies.csv with", len(origin_df), "rows")
+
+
+
+## cleaning form comments
+
+import re
+
+PHOTO_DOMAIN = r"scempstalsesa001pidmz\.blob\.core\.windows\.net/notification-photos"
+
+def clean_comments(raw: str | None) -> str | None:
+    if not raw or not isinstance(raw, str):
+        return raw
+
+    txt = raw
+
+    # 1) If there's a "Photos:" section, chop everything from there down
+    if "Photos:" in txt:
+        txt = txt.split("Photos:", 1)[0]
+
+    # 2) Just in case, strip any remaining blob URLs
+    txt = re.sub(
+        rf"https?://{PHOTO_DOMAIN}[^\s>]*",
+        "",
+        txt,
+        flags=re.IGNORECASE,
+    )
+
+    # 3) Remove "Download Photo" labels
+    txt = re.sub(r"\bDownload Photo\b", "", txt, flags=re.IGNORECASE)
+
+    # 4) Collapse extra whitespace / blank lines
+    txt = re.sub(r"[ \t]{2,}", " ", txt)
+    txt = re.sub(r"\n{2,}", "\n", txt)
+
+    txt = txt.strip()
+    return txt or None
+
+origin_df["comments"] = origin_df["comments"].apply(clean_comments)
