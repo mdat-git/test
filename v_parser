@@ -297,3 +297,134 @@ origin_df = pd.DataFrame(origin_rows)
 origin_df.to_csv("p1_incidents_with_replies.csv", index=False)
 print("Saved p1_incidents_with_replies.csv with", len(origin_df), "rows")
 
+### extraction helper
+import re
+
+def extract_reply_text(body: str) -> str:
+    """
+    Extract just the human reply at the top of an Outlook message body,
+    stopping when we hit quoted history or the P1 form header.
+    """
+    if not body:
+        return ""
+
+    lines = body.splitlines()
+    cleaned = []
+
+    for line in lines:
+        stripped = line.strip()
+        upper = stripped.upper()
+
+        # allow blank lines inside reply
+        if not stripped:
+            cleaned.append(line)
+            continue
+
+        # Stop when quoted thread or form begins
+        if upper.startswith("FROM:"):
+            break
+        if upper.startswith("SENT:"):
+            break
+        if upper.startswith("TO:"):
+            break
+        if upper.startswith("SUBJECT:"):
+            break
+        if "OVERHEAD DETAIL INSPECTION P1 FORM" in stripped:
+            break
+        if stripped.startswith("-----Original Message-----"):
+            break
+        if stripped.startswith("____________________________"):
+            break
+        if stripped.endswith("WROTE:"):
+            break
+        if stripped.startswith(">"):  # quoted style
+            break
+        if "GET OUTLOOK FOR IOS" in upper or "GET OUTLOOK FOR ANDROID" in upper:
+            break
+
+        cleaned.append(line)
+
+    return "\n".join(cleaned).strip()
+
+
+## build origin with all reply info 
+from collections import defaultdict
+import pandas as pd
+
+origin_rows = []
+
+for cid, msgs in threads.items():
+    # Sort so origin is first, replies follow in true order
+    msgs_sorted = sorted(
+        msgs,
+        key=lambda x: (
+            len(x["conversation_index"] or ""),
+            x["conversation_index"]
+        )
+    )
+
+    origin = msgs_sorted[0]
+    replies = msgs_sorted[1:]
+
+    # Parse the P1 form from the origin *only*
+    parsed_form = parse_p1_form_from_body(origin["body"])
+
+    thread_length = len(msgs_sorted)
+    num_replies = max(thread_length - 1, 0)
+
+    # ----- first reply (if any) -----
+    first_reply_time = None
+    first_reply_sender = None
+    first_reply_email = None
+    first_reply_text = None
+
+    if replies:
+        first = replies[0]
+        first_reply_time = first["received_time"]
+        first_reply_sender = first["sender"]
+        first_reply_email = first["sender_email"]
+        first_reply_text = extract_reply_text(first["body"])
+
+    # ----- all replies stitched together (for ML / context) -----
+    all_reply_chunks = []
+    for r in replies:
+        txt = extract_reply_text(r["body"])
+        if not txt:
+            continue
+
+        stamp = r["received_time"]
+        chunk_header = f"[reply_order={r.get('reply_order', '?')} sender={r['sender']} time={stamp}]"
+        chunk = f"{chunk_header}\n{txt}"
+        all_reply_chunks.append(chunk)
+
+    # You asked about separators: I recommend a visual separator with newlines,
+    # it's easier for you to read *and* fine for ML.
+    all_replies_text = "\n\n---\n\n".join(all_reply_chunks) if all_reply_chunks else None
+
+    origin_record = {
+        # Thread / origin metadata
+        "conversation_id": cid,
+        "entry_id": origin["entry_id"],
+        "received_time": origin["received_time"],
+        "subject": origin["subject"],
+        "sender": origin["sender"],
+        "sender_email": origin["sender_email"],
+        "thread_length": thread_length,
+        "num_replies": num_replies,
+
+        # Reply summary
+        "first_reply_time": first_reply_time,
+        "first_reply_sender": first_reply_sender,
+        "first_reply_email": first_reply_email,
+        "first_reply_text": first_reply_text,
+        "all_replies_text": all_replies_text,
+
+        # Parsed P1 form fields (all the structured stuff)
+        **parsed_form,
+    }
+
+    origin_rows.append(origin_record)
+
+origin_df = pd.DataFrame(origin_rows)
+origin_df.to_csv("p1_incidents_with_replies.csv", index=False)
+print("Saved p1_incidents_with_replies.csv with", len(origin_df), "rows")
