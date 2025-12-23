@@ -22,6 +22,9 @@ DASH = r"[-–—]"  # handles -, en-dash, em-dash
 # IMPORTANT: LOC must NOT consume the whitespace before "To"/"From"
 # (this was the bug causing SYSTEM lines not to tag)
 LOC = r"(?:for\s+)?@\s*(?P<location>.+?)(?=\s*(?:\bFrom\b|\bTo\b|$))"
+# Location for REMOVE patterns: stop right before "ETR SYS-" or "ETR MAN-"
+LOC_REMOVE = r"(?:for\s+)?@\s*(?P<location>.+?)(?=\s+ETR\s+(?:SYS|MAN)\s*-\s*)"
+
 
 # Dates observed in your logs:
 #  - 01/03/2024 23:00:00
@@ -86,19 +89,17 @@ PATTERNS: List[Dict[str, Any]] = [
         ),
         "fields": ["source", "location"],
     },
-    # MANUAL ETR- Remove ETR for @ ... ETR SYS-01/03/2024 13:30:00
-    # MANUAL ETR- Remove ETR for @ ... ETR MAN-10/28/2024 20:00:00
-    {
+    # Manual remove
+   {
         "name": "manual_remove_etr",
         "action": "remove",
         "priority": 98,
         "regex": re.compile(
-            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Remove\s+ETR\s+{LOC}\s+ETR\s+(?P<from_kind>SYS|MAN)\s*-\s*(?P<from_dt>{DT_CORE})\s*\.?\s*$",
+            rf"^\s*MANUAL\s+ETR\s*{DASH}\s*Remove\s+ETR\s+{LOC_REMOVE}\s+ETR\s+(?P<from_kind>SYS|MAN)\s*-\s*(?P<from_dt>{DT_CORE})\s*\.?\s*$",
             re.IGNORECASE,
         ),
-        "fields": ["source", "location", "from_kind", "from_dt"],
+        "fields": ["location", "from_kind", "from_dt"],
     },
-
     # SYSTEM ETR- Change for @ ... From -DT To SYS ETR DT
     {
         "name": "system_change_from_to",
