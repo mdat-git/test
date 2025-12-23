@@ -86,6 +86,18 @@ PATTERNS: List[Dict[str, Any]] = [
         ),
         "fields": ["source", "location"],
     },
+    # MANUAL ETR- Remove ETR for @ ... ETR SYS-01/03/2024 13:30:00
+    # MANUAL ETR- Remove ETR for @ ... ETR MAN-10/28/2024 20:00:00
+    {
+        "name": "manual_remove_etr",
+        "action": "remove",
+        "priority": 98,
+        "regex": re.compile(
+            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Remove\s+ETR\s+{LOC}\s+ETR\s+(?P<from_kind>SYS|MAN)\s*-\s*(?P<from_dt>{DT_CORE})\s*\.?\s*$",
+            re.IGNORECASE,
+        ),
+        "fields": ["source", "location", "from_kind", "from_dt"],
+    },
 
     # SYSTEM ETR- Change for @ ... From -DT To SYS ETR DT
     {
@@ -134,6 +146,18 @@ PATTERNS: List[Dict[str, Any]] = [
         ),
         "fields": ["source", "to_dt"],
     },
+    # Set null activation time
+    {
+    "name": "etr_set_null_activation_time",
+    "action": "remove",
+    "priority": 10,
+    "regex": re.compile(
+        r"^\s*The\s+ETR\s+date\s+time\s+was\s+set\s+to\s+null\s+because\s+.*activation\s+time\.?\s*$",
+        re.IGNORECASE,
+    ),
+    "fields": [],
+},
+
 ]
 
 PATTERNS.sort(key=lambda p: p["priority"], reverse=True)
