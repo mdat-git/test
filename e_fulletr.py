@@ -14,36 +14,32 @@ def normalize(text: Optional[str]) -> str:
     return _WS.sub(" ", str(text)).strip()
 
 # -------------------------
-# Regex atoms (log-faithful)
+# Regex atoms tuned to your FOLLOWUP_DESC logs
 # -------------------------
-SRC = r"(?P<source>SYSTEM|MANUAL)"
-LOC = r"for\s+@\s*(?P<location>.+?)\s*(?=(?:\bFrom\b|\bTo\b|$))"
+SRC  = r"(?P<source>SYSTEM|MANUAL)"
+DASH = r"[-–—]"  # handles -, en-dash, em-dash
 
-# Use a CORE (no named group), then wrap it once when needed
-DT_CORE = r"\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2}:\d{2}"
+# IMPORTANT: LOC must NOT consume the whitespace before "To"/"From"
+# (this was the bug causing SYSTEM lines not to tag)
+LOC = r"(?:for\s+)?@\s*(?P<location>.+?)(?=\s*(?:\bFrom\b|\bTo\b|$))"
+
+# Dates observed in your logs:
+#  - 01/03/2024 23:00:00
+#  - 2024/01/04 07:00:00  (planned job message)
+DT_CORE = r"(?:\d{2}/\d{2}/\d{4}|\d{4}/\d{2}/\d{2})\s+\d{2}:\d{2}:\d{2}"
 DT_FROM = rf"(?P<from_dt>{DT_CORE})"
 DT_TO   = rf"(?P<to_dt>{DT_CORE})"
 
-# From blocks observed:
-#   From ETR -NULL
-#   From ETR MAN-06/04/2025 15:00:00
-#   From ETR SYS-06/04/2025 06:00:00
-#   From -06/04/2025 03:30:00
 FROM_BLOCK = (
     rf"From\s+(?:ETR\s+)?"
     rf"(?:(?P<from_kind>SYS|MAN)\s*[-:]?\s*)?"
     rf"(?:(?P<from_null>-NULL)|-?{DT_FROM})"
 )
 
-# To blocks observed:
-#   To SYS ETR 06/03/2025 21:30:00
-#   To MAN ETR : 06/04/2025 15:00:00
-TO_BLOCK = (
-    rf"To\s+(?P<to_kind>SYS|MAN)\s+ETR\s*:?\s*{DT_TO}"
-)
+TO_BLOCK = rf"To\s+(?P<to_kind>SYS|MAN)\s+ETR\s*:?\s*{DT_TO}"
 
 # -------------------------
-# Tag schema
+# Output schema
 # -------------------------
 @dataclass
 class ETRTag:
@@ -79,47 +75,67 @@ class ETRTag:
 # Patterns (priority ordered)
 # -------------------------
 PATTERNS: List[Dict[str, Any]] = [
+    # MANUAL ETR- Disable ETR Re-calculation for @ ...
     {
         "name": "disable_recalc",
         "action": "disable_recalc",
         "priority": 100,
         "regex": re.compile(
-            rf"^{SRC}\s+ETR\s*-\s*Disable\s+ETR\s+Re-calculation\s+{LOC}\s*$",
+            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Disable\s+ETR\s+Re-calculation\s+{LOC}\s*\.?\s*$",
             re.IGNORECASE,
         ),
         "fields": ["source", "location"],
     },
+
+    # SYSTEM ETR- Change for @ ... From -DT To SYS ETR DT
     {
         "name": "system_change_from_to",
         "action": "change",
         "priority": 95,
         "regex": re.compile(
-            rf"^{SRC}\s+ETR\s*-\s*Change\s+{LOC}\s+{FROM_BLOCK}\s+{TO_BLOCK}\s*$",
+            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Change\s+{LOC}\s+{FROM_BLOCK}\s+{TO_BLOCK}\s*\.?\s*$",
             re.IGNORECASE,
         ),
         "fields": ["source", "location", "from_kind", "from_null", "from_dt", "to_kind", "to_dt"],
     },
+
+    # MANUAL ETR- Set ETR ... From ... To ...
     {
         "name": "set_with_from_to",
         "action": "set",
         "priority": 90,
         "regex": re.compile(
-            rf"^{SRC}\s+ETR\s*-\s*Set\s+ETR\s+{LOC}\s+{FROM_BLOCK}\s+{TO_BLOCK}\s*$",
+            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Set\s+ETR\s+{LOC}\s+{FROM_BLOCK}\s+{TO_BLOCK}\s*\.?\s*$",
             re.IGNORECASE,
         ),
         "fields": ["source", "location", "from_kind", "from_null", "from_dt", "to_kind", "to_dt"],
     },
+
+    # SYSTEM ETR- Set ETR ... To SYS ETR ...
     {
-        "name": "system_set_to_only",
+        "name": "set_to_only",
         "action": "set",
         "priority": 80,
         "regex": re.compile(
-            rf"^{SRC}\s+ETR\s*-\s*Set\s+ETR\s+{LOC}\s+{TO_BLOCK}\s*$",
+            rf"^\s*{SRC}\s+ETR\s*{DASH}\s*Set\s+ETR\s+{LOC}\s+{TO_BLOCK}\s*\.?\s*$",
             re.IGNORECASE,
         ),
         "fields": ["source", "location", "to_kind", "to_dt"],
     },
+
+    # Initial ETR for the Planned Job is 2024/01/04 07:00:00
+    {
+        "name": "planned_job_initial_etr",
+        "action": "set",
+        "priority": 70,
+        "regex": re.compile(
+            rf"^\s*(?P<source>SYSTEM|MANUAL)?\s*Initial\s+ETR\b.*?\bis\s+(?P<to_dt>{DT_CORE})\s*$",
+            re.IGNORECASE,
+        ),
+        "fields": ["source", "to_dt"],
+    },
 ]
+
 PATTERNS.sort(key=lambda p: p["priority"], reverse=True)
 
 # -------------------------
@@ -135,8 +151,7 @@ def tag_etr_event(text: str) -> Optional[Dict[str, Any]]:
         if not m:
             continue
 
-        gd = {k: (m.group(k) if k in m.re.groupindex else None)
-              for k in spec.get("fields", [])}
+        gd = {k: (m.group(k) if k in m.re.groupindex else None) for k in spec.get("fields", [])}
 
         tag = ETRTag(
             source=gd.get("source"),
