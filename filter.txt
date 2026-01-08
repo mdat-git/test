@@ -1,0 +1,22 @@
+Month Filter Status =
+VAR HasSelection =
+    ISFILTERED(DimMonth[MonthNum]) || ISFILTERED(DimMonth[MonthName])
+
+VAR m  = [SelectedMonthNum]
+VAR m2 = IF(m = 12, 1, m + 1)
+
+VAR name1 =
+    SWITCH(m,
+        1,"Jan",2,"Feb",3,"Mar",4,"Apr",5,"May",6,"Jun",
+        7,"Jul",8,"Aug",9,"Sep",10,"Oct",11,"Nov",12,"Dec"
+    )
+
+VAR name2 =
+    SWITCH(m2,
+        1,"Jan",2,"Feb",3,"Mar",4,"Apr",5,"May",6,"Jun",
+        7,"Jul",8,"Aug",9,"Sep",10,"Oct",11,"Nov",12,"Dec"
+    )
+
+RETURN
+    "Showing: " & name1 & " + " & name2 &
+    IF(HasSelection, " (selected)", " (default)")
