@@ -191,3 +191,147 @@ IF(
     )
 )
 
+
+#### KPIs #####
+# Helper Mesure
+Selected Month Num (or Default) =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthName])
+VAR SelName = SELECTEDVALUE(MonthSelector[MonthName])
+RETURN
+IF(
+    HasSelection,
+    SWITCH(LOWER(SelName),
+        "january",1,"february",2,"march",3,"april",4,"may",5,"june",6,
+        "july",7,"august",8,"september",9,"october",10,"november",11,"december",12,
+        BLANK()
+    ),
+    MONTH(TODAY())
+)
+
+#helper 2
+Default Next Month Num =
+VAR m = MONTH(TODAY())
+RETURN IF(m = 12, 1, m + 1)
+
+
+## Kpi1 planned ops
+KPI - Planned Ops =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthName])
+VAR m1 = [Selected Month Num (or Default)]
+VAR m2 = [Default Next Month Num]
+RETURN
+IF(
+    HasSelection,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m1)
+    ),
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = m1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = m2
+        )
+    )
+)
+
+#kpi 2 district impacted
+KPI - Districts Impacted =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthName])
+VAR m1 = [Selected Month Num (or Default)]
+VAR m2 = [Default Next Month Num]
+RETURN
+IF(
+    HasSelection,
+    CALCULATE(
+        DISTINCTCOUNT(Gold_PlannedDroneOps[District]),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m1)
+    ),
+    CALCULATE(
+        DISTINCTCOUNT(Gold_PlannedDroneOps[District]),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = m1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = m2
+        )
+    )
+)
+
+
+# kpi3 cities impacted
+
+KPI - Cities Impacted =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthName])
+VAR m1 = [Selected Month Num (or Default)]
+VAR m2 = [Default Next Month Num]
+RETURN
+IF(
+    HasSelection,
+    CALCULATE(
+        DISTINCTCOUNT(Gold_PlannedDroneOps[City]),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m1)
+    ),
+    CALCULATE(
+        DISTINCTCOUNT(Gold_PlannedDroneOps[City]),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = m1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = m2
+        )
+    )
+)
+
+##kpi 4
+
+KPI - % Missing Lat/Lon =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthName])
+VAR m1 = [Selected Month Num (or Default)]
+VAR m2 = [Default Next Month Num]
+
+VAR TotalRows =
+IF(
+    HasSelection,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m1)
+    ),
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = m1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = m2
+        )
+    )
+)
+
+VAR MissingRows =
+IF(
+    HasSelection,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m1),
+        KEEPFILTERS(
+            ISBLANK(Gold_PlannedDroneOps[Latitude]) ||
+            ISBLANK(Gold_PlannedDroneOps[Longitude])
+        )
+    ),
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = m1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = m2
+        ),
+        KEEPFILTERS(
+            ISBLANK(Gold_PlannedDroneOps[Latitude]) ||
+            ISBLANK(Gold_PlannedDroneOps[Longitude])
+        )
+    )
+)
+
+RETURN
+DIVIDE(MissingRows, TotalRows)
+
+
+
+
+
+
+
