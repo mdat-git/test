@@ -140,3 +140,26 @@ VAR HasM2 =
 RETURN
 IF(HasM1 || HasM2, 1, 0)
 
+
+
+Planned Ops (Selected or Default+Next) =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthNum])
+VAR Sel = SELECTEDVALUE(MonthSelector[MonthNum])
+VAR M1 = MONTH(TODAY())
+VAR M2 = IF(M1 = 12, 1, M1 + 1)
+RETURN
+IF(
+    HasSelection,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = Sel)
+    ),
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(
+            Gold_PlannedDroneOps[PlannedMonthNum] = M1
+            || Gold_PlannedDroneOps[PlannedMonthNum] = M2
+        )
+    )
+)
+
