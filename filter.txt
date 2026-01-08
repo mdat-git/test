@@ -1,9 +1,12 @@
 Month Filter Status =
 VAR HasSelection =
-    ISFILTERED(DimMonth[MonthNum]) || ISFILTERED(DimMonth[MonthName])
+    HASONEVALUE(DimMonth[MonthNum])    -- best signal for “user picked a month”
 
-VAR m  = [SelectedMonthNum]
-VAR m2 = IF(m = 12, 1, m + 1)
+VAR m =
+    COALESCE(SELECTEDVALUE(DimMonth[MonthNum]), MONTH(TODAY()))
+
+VAR m2 =
+    IF(m = 12, 1, m + 1)
 
 VAR name1 =
     SWITCH(m,
@@ -18,5 +21,8 @@ VAR name2 =
     )
 
 RETURN
-    "Showing: " & name1 & " + " & name2 &
-    IF(HasSelection, " (selected)", " (default)")
+IF(
+    HasSelection,
+    "Showing: " & name1 & " (selected)",
+    "Showing: " & name1 & " + " & name2 & " (default)"
+)
