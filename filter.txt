@@ -52,3 +52,23 @@ IF(
     IF(HasMonthM, 1, 0),                 -- selected month only
     IF(HasMonthM || HasMonthM2, 1, 0)    -- default: month + next month
 )
+
+
+Planned Ops (Selected or Default+Next) =
+VAR HasSelection = HASONEVALUE(DimMonth[MonthNum])
+VAR m  = COALESCE(SELECTEDVALUE(DimMonth[MonthNum]), MONTH(TODAY()))
+VAR m2 = IF(m = 12, 1, m + 1)
+RETURN
+IF(
+    HasSelection,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m)
+    ),
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m
+                 || Gold_PlannedDroneOps[PlannedMonthNum] = m2)
+    )
+)
+
