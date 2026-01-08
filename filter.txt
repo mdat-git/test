@@ -112,3 +112,31 @@ IF(
     ),
     BLANK()
 )
+
+
+Include Point (Selected or Default+Next) =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthNum])
+VAR Sel = SELECTEDVALUE(MonthSelector[MonthNum])
+
+VAR M1 = MONTH(TODAY())
+VAR M2 = IF(M1 = 12, 1, M1 + 1)
+
+VAR HasM1 =
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = IF(HasSelection, Sel, M1))
+    ) > 0
+
+VAR HasM2 =
+    IF(
+        HasSelection,
+        FALSE(),
+        CALCULATE(
+            COUNTROWS(Gold_PlannedDroneOps),
+            KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = M2)
+        ) > 0
+    )
+
+RETURN
+IF(HasM1 || HasM2, 1, 0)
+
