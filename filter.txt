@@ -72,3 +72,43 @@ IF(
     )
 )
 
+
+
+
+######## TEST DISCONNECTED SLICER
+MonthSelector =
+DATATABLE(
+    "MonthNum", INTEGER,
+    "MonthName", STRING,
+    {
+        {1,"January"}, {2,"February"}, {3,"March"}, {4,"April"},
+        {5,"May"}, {6,"June"}, {7,"July"}, {8,"August"},
+        {9,"September"}, {10,"October"}, {11,"November"}, {12,"December"}
+    }
+)
+
+Planned Ops (Matrix Controlled) =
+VAR HasSelection = HASONEVALUE(MonthSelector[MonthNum])
+VAR SelMonth = SELECTEDVALUE(MonthSelector[MonthNum])
+VAR DefaultM1 = MONTH(TODAY())
+VAR DefaultM2 = IF(DefaultM1 = 12, 1, DefaultM1 + 1)
+
+-- This is the month currently being evaluated in the matrix column:
+VAR ColMonth = SELECTEDVALUE(DimMonth[MonthNum])
+
+VAR ShowThisColumn =
+    IF(
+        HasSelection,
+        ColMonth = SelMonth,
+        ColMonth = DefaultM1 || ColMonth = DefaultM2
+    )
+
+RETURN
+IF(
+    ShowThisColumn,
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps)
+        -- your model relationships should already apply the DimMonth column filter
+    ),
+    BLANK()
+)
