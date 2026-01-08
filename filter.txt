@@ -163,37 +163,31 @@ IF(
     )
 )
 
-
 Month Filter Status =
-VAR HasSelection = ISFILTERED(MonthSelector[MonthNum])
-VAR SelMonth = SELECTEDVALUE(MonthSelector[MonthNum])
-
+VAR HasFilter = ISFILTERED(MonthSelector[MonthName])
 VAR M1 = MONTH(TODAY())
 VAR M2 = IF(M1 = 12, 1, M1 + 1)
 
-VAR ShowMonth =
-    IF(HasSelection, SelMonth, M1)
-
-VAR ShowNext =
-    IF(HasSelection, BLANK(), M2)
-
 VAR Name1 =
-    SWITCH(ShowMonth,
-        1,"Jan",2,"Feb",3,"Mar",4,"Apr",5,"May",6,"Jun",
-        7,"Jul",8,"Aug",9,"Sep",10,"Oct",11,"Nov",12,"Dec"
+    SWITCH(M1,
+        1,"January",2,"February",3,"March",4,"April",5,"May",6,"June",
+        7,"July",8,"August",9,"September",10,"October",11,"November",12,"December"
     )
 
 VAR Name2 =
-    SWITCH(ShowNext,
-        1,"Jan",2,"Feb",3,"Mar",4,"Apr",5,"May",6,"Jun",
-        7,"Jul",8,"Aug",9,"Sep",10,"Oct",11,"Nov",12,"Dec"
+    SWITCH(M2,
+        1,"January",2,"February",3,"March",4,"April",5,"May",6,"June",
+        7,"July",8,"August",9,"September",10,"October",11,"November",12,"December"
     )
 
 RETURN
 IF(
-    HasSelection,
-    "Showing: " & Name1 & " (selected)",
-    "Showing: " & Name1 & " + " & Name2 & " (default)"
+    NOT HasFilter,
+    "Showing: " & Name1 & " + " & Name2 & " (default)",
+    IF(
+        HASONEVALUE(MonthSelector[MonthName]),
+        "Showing: " & SELECTEDVALUE(MonthSelector[MonthName]) & " (selected)",
+        "Showing: Custom (selected)"
+    )
 )
-
 
