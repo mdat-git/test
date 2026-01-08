@@ -26,3 +26,29 @@ IF(
     "Showing: " & name1 & " (selected)",
     "Showing: " & name1 & " + " & name2 & " (default)"
 )
+
+
+##### MONTH SLICE
+Show Row (Selected or Default+Next) =
+VAR HasSelection = HASONEVALUE(DimMonth[MonthNum])   -- single-select slicer recommended
+VAR m  = COALESCE(SELECTEDVALUE(DimMonth[MonthNum]), MONTH(TODAY()))
+VAR m2 = IF(m = 12, 1, m + 1)
+
+VAR HasMonthM =
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m)
+    ) > 0
+
+VAR HasMonthM2 =
+    CALCULATE(
+        COUNTROWS(Gold_PlannedDroneOps),
+        KEEPFILTERS(Gold_PlannedDroneOps[PlannedMonthNum] = m2)
+    ) > 0
+
+RETURN
+IF(
+    HasSelection,
+    IF(HasMonthM, 1, 0),                 -- selected month only
+    IF(HasMonthM || HasMonthM2, 1, 0)    -- default: month + next month
+)
