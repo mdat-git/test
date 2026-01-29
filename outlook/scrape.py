@@ -49,6 +49,13 @@ def normalize_subject(subject: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s.lower()
 
+import datetime as dt
+
+def outlook_time_to_naive_py_datetime(t):
+    # Works for pywintypes / COM time objects
+    # Build a clean, naive datetime (no tzinfo / DST weirdness)
+    return dt.datetime(t.year, t.month, t.day, t.hour, t.minute, t.second)
+
 
 
 ##3
@@ -89,7 +96,10 @@ def scrape_messages(
             if getattr(msg, "Class", None) != 43:
                 continue
 
-            received = msg.ReceivedTime
+           # inside your for msg in restricted loop:
+            rt = msg.ReceivedTime
+            received = outlook_time_to_naive_py_datetime(rt)
+
             subject = getattr(msg, "Subject", "") or ""
             sender_name = getattr(msg, "SenderName", "") or ""
 
@@ -103,8 +113,8 @@ def scrape_messages(
 
             rows.append(
                 {
-                    "received_time": pd.to_datetime(received),
-                    "received_date": pd.to_datetime(received).date(),
+                    "received_time": received
+                    "received_date": received.date(),
                     "subject": subject,
                     "subject_norm": normalize_subject(subject),
                     "is_reply_fwd_subject": looks_like_reply_or_forward(subject),
@@ -148,6 +158,10 @@ df = scrape_messages(
     end_date=end,
     max_items=None,   # or set to 20000 if you want a cap
 )
+
+df["received_time"] = pd.to_datetime(df["received_time"], errors="coerce")
+df = df.dropna(subset=["received_time"]).sort_values("received_time").reset_index(drop=True)
+
 
 print(f"Pulled {len(df):,} messages")
 df.head(10)
