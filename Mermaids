@@ -1,0 +1,68 @@
+%% Slide 3 — Current State: Power BI-heavy transformations
+flowchart LR
+    A[Azure SQL DB] --> D[Power BI]
+    B[SharePoint CSVs] --> D
+
+    D --> E[40+ Power Query Transformations]
+    E --> F[Dashboard]
+
+    style E fill:#ffcccc
+
+%% Slide 8 — Target Architecture: Snowflake Lakehouse
+flowchart TD
+    A[Azure SQL DB] --> B[Snowflake BRONZE]
+    A2[Other Sources] --> B
+
+    B --> C[SILVER Layer]
+    C --> D[GOLD Layer]
+
+    D --> E[Power BI Dataflows]
+    E --> F[Dashboards]
+
+    subgraph Orchestration
+        G[VDI Python ETL]
+    end
+
+    G --> B
+    G --> C
+    G --> D
+
+    style D fill:#d4edda
+
+
+%% Slide 9 — Under the Hood: ETL pipeline flow
+flowchart TD
+    A[VDI Scheduler] --> B[Python ETL]
+
+    B --> C[Extract Data]
+    C --> D[Load to Snowflake]
+
+    D --> E[BRONZE]
+    E --> F[SILVER Transformations]
+    F --> G[GOLD Tables]
+
+    G --> H[Power BI]
+
+    style G fill:#d4edda
+
+%% Slide 13 — Controlled Update Flow via Streamlit
+flowchart TD
+    A[User Input via Streamlit] --> B[Staging Table]
+    B --> C[Validation Logic]
+
+    C --> D{Valid?}
+    D -->|Yes| E[Merge into Gold]
+    D -->|No| F[Reject + Log]
+
+    E --> G[Audit Trail]
+
+    style B fill:#fff3cd
+    style E fill:#d4edda
+
+
+%% Slide 15 — Reporting flow from Gold layer
+flowchart LR
+    A[Gold Layer] --> B[Power BI Dataflows]
+    B --> C[Dashboards]
+
+    style A fill:#d4edda
